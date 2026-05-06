@@ -1,4 +1,4 @@
-const { hello } = require('./hello');
+import { hello } from './hello.js';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
