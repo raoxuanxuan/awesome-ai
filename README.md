@@ -1,1 +1,21 @@
-# awesome-ai
+# Awesome AI
+
+A curated list of awesome AI resources, tools, and skills.
+
+## Table of Contents
+
+- [Models](#models)
+- [Tools](#tools)
+- [Skills](#skills)
+
+## Models
+
+AI models and model families worth exploring.
+
+## Tools
+
+Tools and frameworks for working with AI.
+
+## Skills
+
+Techniques and skills for building AI-powered applications.
