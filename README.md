@@ -1,5 +1,7 @@
 # Awesome AI
 
+[![CI](https://github.com/raoxuanxuan/awesome-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/raoxuanxuan/awesome-ai/actions/workflows/ci.yml)
+
 A curated list of awesome AI resources, tools, and skills.
 
 ## Table of Contents
