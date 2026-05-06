@@ -3,10 +3,15 @@
   "version": "1.0.0",
   "description": "A curated list of awesome AI resources, tools, and skills.",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "test": "node hello.test.js"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
 }
