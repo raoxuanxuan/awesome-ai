@@ -1,0 +1,17 @@
+{
+  "default": "main",
+  "vaults": [
+    {
+      "id": "main",
+      "triggers": ["保存这篇文章", "保存到知识库", "保存推文", "save to vault"],
+      "root": "/Users/CHANGE_ME/vault",
+      "mode": "karpathy"
+    },
+    {
+      "id": "work",
+      "triggers": ["保存到 工作", "vault=work", "工作知识库"],
+      "root": "/Users/CHANGE_ME/work-vault",
+      "mode": "karpathy"
+    }
+  ]
+}

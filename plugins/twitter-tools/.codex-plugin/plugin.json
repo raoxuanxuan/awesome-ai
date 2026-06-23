@@ -1,18 +1,18 @@
 {
   "name": "twitter-tools",
-  "version": "0.1.0",
-  "description": "Fetch and normalize X/Twitter content for downstream agent workflows.",
+  "version": "0.2.0",
+  "description": "Fetch normalized X/Twitter content and download referenced media for downstream agent workflows.",
   "author": {
     "name": "saberrao"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Twitter Tools",
-    "shortDescription": "Fetch normalized X/Twitter data.",
-    "longDescription": "Twitter Tools provides read-only X/Twitter fetching skills that emit JSON or JSONL for upper-layer archive, monitor, translation, and knowledge-ingestion workflows.",
+    "shortDescription": "Fetch X/Twitter data and media.",
+    "longDescription": "Twitter Tools provides X/Twitter data and media skills for upper-layer archive, monitor, translation, and knowledge-ingestion workflows. twitter-fetch emits JSON or JSONL; twitter-media-fetch downloads referenced media and emits a manifest.",
     "developerName": "saberrao",
     "category": "Productivity",
-    "capabilities": ["Fetch single tweets", "Fetch timelines", "Fetch threads", "Fetch user history"],
+    "capabilities": ["Fetch single tweets", "Fetch timelines", "Fetch threads", "Fetch user history", "Download tweet media"],
     "defaultPrompt": "Fetch this X/Twitter URL and return normalized JSON."
   }
 }

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Twitter Media Fetch"
+  short_description: "Download X/Twitter media from twitter-fetch JSON."
+  default_prompt: "Download media referenced by this twitter-fetch JSON and return a manifest."

@@ -1,0 +1,10 @@
+{
+  "name": "obsidian-tools",
+  "displayName": "Obsidian Tools",
+  "version": "0.1.0",
+  "description": "Save normalized external content into Obsidian vaults for downstream knowledge workflows.",
+  "author": {
+    "name": "saberrao"
+  },
+  "skills": "./skills/"
+}

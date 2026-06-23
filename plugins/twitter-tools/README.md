@@ -1,8 +1,9 @@
 # Twitter Tools
 
-Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目前只包含一个 skill：
+Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目前包含两个 skill：
 
 - `twitter-fetch`：只负责读取和规范化 X/Twitter 数据，输出 JSON 或 JSONL。
+- `twitter-media-fetch`：读取 `twitter-fetch` JSON 中引用的媒体 URL，下载到调用方指定目录，并输出 manifest JSON。
 
 它适合给上层工作流当底层数据源，例如保存到 Obsidian、监控 KOL、翻译推文、生成摘要等。但这些上层动作不在 `twitter-fetch` 里做。
 
@@ -18,11 +19,20 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 | timeline | 读取某个用户最近公开 timeline |
 | history | 用登录态读取某个用户更深的 tweets/replies 历史 |
 
+`twitter-media-fetch` 当前支持：
+
+| 场景 | 能力 |
+| --- | --- |
+| 从 JSON 下载媒体 | 从 `twitter-fetch` envelope 中提取 tweet、article、thread、quote 里的媒体 URL |
+| 从 URL 下载媒体 | 直接传入一个或多个媒体 URL 下载 |
+| 输出 manifest | 输出本地路径、文件名、字节数、sha256、失败项 |
+
 它不会做：
 
 - 不写 Obsidian / vault / GitHub Pages / markdown 文件。
 - 不更新 `.state.json`、`.backfill_state.json` 或任何监控状态。
-- 不做分类、摘要、翻译、下载图片、推送通知。
+- 不做分类、摘要、翻译、推送通知。
+- `twitter-fetch` 不下载图片；需要下载媒体时使用 `twitter-media-fetch`。
 - 不保存非 Twitter 平台数据。
 
 ## 目录结构
@@ -35,9 +45,14 @@ plugins/twitter-tools/
 ├── .claude-plugin/plugin.json
 ├── README.md
 └── skills/
-    └── twitter-fetch/
+    ├── twitter-fetch/
+    │   ├── SKILL.md
+    │   ├── bin/twitter-fetch
+    │   ├── scripts/
+    │   └── references/
+    └── twitter-media-fetch/
         ├── SKILL.md
-        ├── bin/twitter-fetch
+        ├── bin/twitter-media-fetch
         ├── scripts/
         └── references/
 ```
@@ -119,9 +134,9 @@ export TWITTER_FETCH_VENV=/path/to/venv
 
 ## Python 和 uv
 
-这个 skill 使用 `uv` 管理 Python 依赖。
+`twitter-fetch` 使用 `uv` 管理 Python 依赖。`twitter-media-fetch` 只依赖系统 `python3` 标准库，不需要额外安装 Python 包。
 
-正常情况下你直接运行：
+正常情况下你直接运行 `twitter-fetch`：
 
 ```bash
 plugins/twitter-tools/skills/twitter-fetch/bin/twitter-fetch single --url "https://x.com/user/status/123" --pretty
@@ -261,6 +276,47 @@ plugins/twitter-tools/skills/twitter-fetch/bin/twitter-fetch history \
   --jsonl
 ```
 
+### 下载推文媒体
+
+先读取推文 JSON：
+
+```bash
+plugins/twitter-tools/skills/twitter-fetch/bin/twitter-fetch single \
+  --url "https://x.com/user/status/123" \
+  --include-thread \
+  --pretty > tweet.json
+```
+
+再下载其中引用的媒体：
+
+```bash
+plugins/twitter-tools/skills/twitter-media-fetch/bin/twitter-media-fetch download \
+  --input tweet.json \
+  --output-dir /path/to/assets \
+  --prefix my-slug \
+  --pretty
+```
+
+输出 manifest 示例：
+
+```json
+{
+  "ok": true,
+  "downloaded": [
+    {
+      "source_url": "https://pbs.twimg.com/media/...",
+      "filename": "my-slug-cover.jpg",
+      "path": "/path/to/assets/my-slug-cover.jpg",
+      "media_type": "image",
+      "bytes": 12345,
+      "sha256": "..."
+    }
+  ],
+  "failed": [],
+  "count": 1
+}
+```
+
 注意：`history` 只读取数据，不读写 `.backfill_state.json`。
 
 ## 输出格式
@@ -328,12 +384,14 @@ agent 应该自己选择 `single`、`timeline`、`thread` 或 `history`，而不
 - `thread` 发现依赖最近公开 timeline 窗口，较老或隐藏的 thread 可能不完整。
 - `history` 依赖登录态，cookie 过期后需要重新配置。
 - 如果账号触发风控、2FA、CAPTCHA，需要你在浏览器里手动处理。
-- 这个 skill 是只读数据层。写 vault、写 raw markdown、更新 backfill state 应该放在上层 skill 或脚本里。
+- `twitter-fetch` 是只读数据层；`twitter-media-fetch` 只写调用方指定的媒体目录。写 vault、写 raw markdown、更新 backfill state 应该放在上层 skill 或脚本里。
 
 ## 维护者参考
 
 - agent 入口：`skills/twitter-fetch/SKILL.md`
+- 媒体下载入口：`skills/twitter-media-fetch/SKILL.md`
 - 命令手册：`skills/twitter-fetch/references/usage.md`
 - 输出 schema：`skills/twitter-fetch/references/schema.md`
+- 媒体 manifest schema：`skills/twitter-media-fetch/references/schema.md`
 - bootstrap：`skills/twitter-fetch/scripts/bootstrap.sh`
 - cookie 保存：`skills/twitter-fetch/scripts/save_cookies.py`

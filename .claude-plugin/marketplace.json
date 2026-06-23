@@ -7,7 +7,16 @@
     {
       "name": "twitter-tools",
       "source": "./plugins/twitter-tools",
-      "description": "Fetch and normalize X/Twitter content for downstream agent workflows.",
+      "description": "Fetch normalized X/Twitter content and download referenced media for downstream agent workflows.",
+      "version": "0.2.0",
+      "author": {
+        "name": "saberrao"
+      }
+    },
+    {
+      "name": "obsidian-tools",
+      "source": "./plugins/obsidian-tools",
+      "description": "Save normalized external content into Obsidian vaults for downstream knowledge workflows.",
       "version": "0.1.0",
       "author": {
         "name": "saberrao"

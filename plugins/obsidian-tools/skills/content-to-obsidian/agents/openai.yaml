@@ -1,0 +1,4 @@
+interface:
+  display_name: "Content to Obsidian"
+  short_description: "Save normalized external content into Obsidian vaults."
+  default_prompt: "Save this normalized content into the configured Obsidian vault."
