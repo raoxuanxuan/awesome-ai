@@ -7,7 +7,7 @@ from io import StringIO
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kol_refresh import item_to_markdown, load_state, main, state_path
+from kol_refresh import default_twitter_fetch_bin, item_to_markdown, load_state, main, state_path
 
 
 class KolRefreshTests(unittest.TestCase):
@@ -65,6 +65,11 @@ class KolRefreshTests(unittest.TestCase):
             state = load_state(vault, "h")
             self.assertEqual(state["newest_id"], "2")
             self.assertEqual(state["total_fetched"], 1)
+
+    def test_default_twitter_fetch_bin_resolves_in_repo(self):
+        binary = default_twitter_fetch_bin()
+        self.assertIsNotNone(binary)
+        self.assertTrue(str(binary).endswith("twitter-fetch"))
 
 
 if __name__ == "__main__":

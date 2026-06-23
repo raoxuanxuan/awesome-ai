@@ -45,9 +45,22 @@ def load_state(vault: Path, handle: str) -> dict[str, Any]:
 
 def default_twitter_fetch_bin() -> Path | None:
     plugins_dir = Path(__file__).resolve().parents[2]
-    candidate = plugins_dir / "twitter-tools" / "skills" / "twitter-fetch" / "bin" / "twitter-fetch"
-    if candidate.exists():
-        return candidate
+    candidates = [
+        plugins_dir / "twitter-tools" / "skills" / "twitter-fetch" / "bin" / "twitter-fetch",
+    ]
+    cache_root = Path.home() / ".codex" / "plugins" / "cache" / "awesome-ai" / "twitter-tools"
+    if cache_root.exists():
+        candidates.extend(
+            sorted(cache_root.glob("*/skills/twitter-fetch/bin/twitter-fetch"), reverse=True)
+        )
+    claude_cache = Path.home() / ".claude" / "plugins" / "cache" / "awesome-ai" / "twitter-tools"
+    if claude_cache.exists():
+        candidates.extend(
+            sorted(claude_cache.glob("*/skills/twitter-fetch/bin/twitter-fetch"), reverse=True)
+        )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
     found = shutil.which("twitter-fetch")
     return Path(found) if found else None
 
