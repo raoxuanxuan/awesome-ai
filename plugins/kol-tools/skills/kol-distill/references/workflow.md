@@ -4,6 +4,8 @@ Inputs:
 
 - `<vault>/<handle>/wiki/.clean_corpus.jsonl`
 - `<vault>/<handle>/wiki/.ingest_index.jsonl`
+- `<vault>/<handle>/wiki/.ingest_meta.json`
+- `<vault>/<handle>/wiki/.ingest_delta.tsv` for incremental distillation
 - `<vault>/_cross/topic_registry.md`
 - Existing `sources`, `methods`, `positions`, `timeline.md`, and `soul.md` when incrementally updating.
 
@@ -26,5 +28,17 @@ Rules:
 - Replies marked substantive by `kol-clean` are first-class evidence.
 - Subscriber-only content must be marked private and should not be quoted in public-facing text.
 - Do not rewrite voice samples during small incremental ingest unless explicitly asked.
+
+Incremental boundary:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_delta.py <handle> --vault /Users/saberrao/vault/kol --cap 120
+```
+
+If status is `ready`, integrate `.ingest_delta.tsv` into existing wiki pages, then commit:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_delta.py <handle> --vault /Users/saberrao/vault/kol --commit <watermark_proposed> --added <n>
+```
 
 Prompt templates live in `plugins/kol-tools/templates/`.

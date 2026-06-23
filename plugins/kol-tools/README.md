@@ -53,6 +53,7 @@ python3 plugins/kol-tools/skills/kol-clean/scripts/kol_clean.py TJ_Research --va
 python3 plugins/kol-tools/skills/kol-index/scripts/kol_index.py TJ_Research --vault /Users/saberrao/vault/kol --dry-run
 python3 plugins/kol-tools/scripts/registry_health.py --vault /Users/saberrao/vault/kol
 python3 plugins/kol-tools/scripts/kol_refresh.py --vault /Users/saberrao/vault/kol --handle TJ_Research --incremental --max-pages 1 --dry-run
+python3 plugins/kol-tools/scripts/kol_delta.py TJ_Research --vault /Users/saberrao/vault/kol --cap 120
 ```
 
 ## Privacy
