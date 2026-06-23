@@ -5,6 +5,7 @@ KOL Tools is a private KOL digital-twin plugin for Codex and Claude Code.
 ## What It Does
 
 - Maintains raw KOL archives under `/Users/saberrao/vault/kol/`.
+- Reuses `twitter-tools/tweet-pool` as the canonical tweet cache before writing raw KOL Markdown.
 - Cleans low-information tweets without deleting raw data.
 - Preserves substantive replies and routes them into methods, positions, sources, voice, or timeline.
 - Builds deterministic indexes and stats.
@@ -12,7 +13,7 @@ KOL Tools is a private KOL digital-twin plugin for Codex and Claude Code.
 
 ## What It Does Not Do
 
-- It does not implement low-level X/Twitter fetching itself. It calls `twitter-tools/twitter-fetch`.
+- It does not implement low-level X/Twitter fetching or global tweet caching itself. It calls `twitter-tools/twitter-fetch` and `twitter-tools/tweet-pool`.
 - It does not publish KOL twin output.
 - It does not commit raw tweets, cookies, subscriber posts, or runtime state.
 - It does not impersonate a KOL as the real person.
@@ -29,6 +30,19 @@ Override:
 
 ```bash
 export KOL_TOOLS_VAULT=/path/to/kol
+```
+
+KOL refresh also writes normalized tweet cache and consumer status through
+`twitter-tools/tweet-pool`. By default that runtime is:
+
+```text
+/Users/saberrao/ai-workspace/content-creation/.tweet-pool/
+```
+
+Override for tests:
+
+```bash
+export TWEET_POOL_RUNTIME=/tmp/.tweet-pool
 ```
 
 ## Install

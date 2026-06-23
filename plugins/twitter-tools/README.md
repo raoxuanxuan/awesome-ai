@@ -1,8 +1,9 @@
 # Twitter Tools
 
-Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目前包含三个 skill：
+Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目前包含四个 skill：
 
 - `twitter-fetch`：只负责读取和规范化 X/Twitter 数据，输出 JSON 或 JSONL。
+- `tweet-pool`：把 `twitter-fetch` 的 normalized item 按 tweet ID 缓存起来，让多个上层 workflow 复用抓取结果，但不共享业务状态。
 - `twitter-media-fetch`：读取 `twitter-fetch` JSON 中引用的媒体 URL，下载到调用方指定目录，并输出 manifest JSON。
 - `twitter-monitor`：状态化监控编排器，定时检查配置用户的新内容，过滤、补全、下载媒体，并把标准内容交给 `content-to-obsidian`。
 
@@ -28,6 +29,16 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 | 从 URL 下载媒体 | 直接传入一个或多个媒体 URL 下载 |
 | 输出 manifest | 输出本地路径、文件名、字节数、sha256、失败项 |
 
+`tweet-pool` 当前支持：
+
+| 场景 | 能力 |
+| --- | --- |
+| 统一缓存 | 将 `twitter-fetch` envelope / JSONL 写入 `.tweet-pool/tweets/<tweet_id>.json` |
+| 稳定导出 | 按 tweet ID、作者、since_id 导出 canonical tweets，供 KOL、监控、归档等上层复用 |
+| 作者缓存 | 从 tweet item 中沉淀 `authors/<username>.json`，可保存头像 URL |
+| 观察记录 | 为 timeline/history 追加 `timelines/<username>.jsonl` 和 `fetch_state/<username>.json` |
+| 消费状态 | 为 `twitter-monitor`、`kol-twin` 等 consumer 独立维护 `consumers/<consumer>.json` |
+
 `twitter-monitor` 当前支持：
 
 | 场景 | 能力 |
@@ -41,6 +52,7 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 
 - `twitter-fetch` / `twitter-media-fetch` 不写 Obsidian / vault / Markdown 文件。
 - `twitter-fetch` / `twitter-media-fetch` 不更新 `.state.json`、`.backfill_state.json` 或任何监控状态。
+- `tweet-pool` 不做统一业务队列，不做全局低质量过滤，不把一个 consumer 的 skip/save/ingest 状态共享给另一个 consumer。
 - `twitter-monitor` 不写 GitHub Pages，不做 KOL raw history backfill。
 - 不做推送通知。
 - `twitter-fetch` 不下载图片；需要下载媒体时使用 `twitter-media-fetch`。
@@ -59,6 +71,11 @@ plugins/twitter-tools/
     ├── twitter-fetch/
     │   ├── SKILL.md
     │   ├── bin/twitter-fetch
+    │   ├── scripts/
+    │   └── references/
+    ├── tweet-pool/
+    │   ├── SKILL.md
+    │   ├── bin/tweet-pool
     │   ├── scripts/
     │   └── references/
     ├── twitter-media-fetch/
@@ -157,6 +174,30 @@ claude plugin install twitter-tools@awesome-ai
 export TWITTER_FETCH_RUNTIME=/path/to/runtime
 export TWITTER_FETCH_COOKIES=/path/to/.cookies.json
 export TWITTER_FETCH_VENV=/path/to/venv
+```
+
+第一次使用 `tweet-pool` 时，需要准备推文池 runtime：
+
+```text
+/Users/saberrao/ai-workspace/content-creation/.tweet-pool/
+├── tweets/
+├── authors/
+├── media/
+├── timelines/
+├── fetch_state/
+└── consumers/
+```
+
+初始化命令：
+
+```bash
+plugins/twitter-tools/skills/tweet-pool/bin/tweet-pool ensure --pretty
+```
+
+如果只是测试，可以设置：
+
+```bash
+export TWEET_POOL_RUNTIME=/tmp/.tweet-pool
 ```
 
 ## Python 和 uv
