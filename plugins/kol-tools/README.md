@@ -9,7 +9,7 @@ KOL Tools is a private KOL digital-twin plugin for Codex and Claude Code.
 - Cleans low-information tweets without deleting raw data.
 - Preserves substantive replies and routes them into methods, positions, sources, voice, or timeline.
 - Builds deterministic indexes and stats.
-- Generates reviewable distillation prompt packs before KOL wiki updates.
+- Generates risk-scored distillation prompt packs before KOL wiki updates.
 - Provides prompts and scripts for KOL ask and debate workflows.
 
 ## What It Does Not Do
@@ -69,7 +69,7 @@ python3 plugins/kol-tools/skills/kol-index/scripts/kol_index.py TJ_Research --va
 python3 plugins/kol-tools/scripts/registry_health.py --vault /Users/saberrao/vault/kol
 python3 plugins/kol-tools/scripts/kol_refresh.py --vault /Users/saberrao/vault/kol --handle TJ_Research --incremental --max-pages 1 --dry-run
 python3 plugins/kol-tools/scripts/kol_delta.py TJ_Research --vault /Users/saberrao/vault/kol --cap 120
-python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode prompt-pack
+python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode prompt-pack --policy balanced
 python3 plugins/kol-tools/scripts/kol_ask.py TJ_Research --vault /Users/saberrao/vault/kol --question "怎么看 NVDA 和 AI capex?" --mode context-pack
 python3 plugins/kol-tools/scripts/kol_debate.py --vault /Users/saberrao/vault/kol --kols TJ_Research,LinQingV --question "AI capex 是泡沫吗？" --rounds 2 --mode prompt-pack
 ```
@@ -81,6 +81,13 @@ python3 plugins/kol-tools/scripts/kol_debate.py --vault /Users/saberrao/vault/ko
 ```
 
 It does not modify durable wiki pages or advance `.ingest_meta.json`.
+
+The generated `manifest.json` and `risk_assessment.json` classify the run:
+
+- `auto_eligible`: low-risk source/index-log updates; user review is not required after validators pass.
+- `agent_review_required`: medium-risk existing method/position updates or larger deltas; an agent should review, but the user is not interrupted unless validation fails.
+- `user_review_required`: high-risk changes such as timeline/soul updates, new methods, new positions, or large deltas.
+- `blocked`: private/subscriber evidence, schema mismatch, or missing required evidence fields; do not apply or commit.
 
 `kol_ask.py --mode context-pack` writes only a question-specific context
 workspace under:

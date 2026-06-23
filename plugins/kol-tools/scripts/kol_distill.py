@@ -31,6 +31,53 @@ TOPIC_RULES: list[tuple[str, tuple[str, ...]]] = [
 
 CORE_WIKI_FILES = ("soul.md", "timeline.md", "_index.md", "_log.md")
 
+SOURCE_TARGETS: dict[str, str] = {
+    "AI算力与Capex": "AI算力与芯片.md",
+    "美联储与利率": "美联储政策.md",
+    "市场盈利预期": "财报季解读.md",
+    "个股时间成本与退出标准": "方法论与复盘.md",
+    "公司经营与管理层变化": "财报季解读.md",
+    "现金流与商业模式": "消费与零售.md",
+    "杂感与社区互动": "杂感与社区互动.md",
+}
+
+METHOD_TARGETS: dict[str, list[tuple[str, str]]] = {
+    "AI算力与Capex": [
+        ("ai-capex-roi", "AI capex / token price / ROI framework"),
+        ("ai-fundamental-validation", "AI landing evidence and fundamental validation"),
+    ],
+    "美联储与利率": [
+        ("rate-cut-roadmap", "Fed path and market pricing framework"),
+        ("data-source-discipline", "market price as a data source"),
+        ("self-correction", "stance revision when data changes"),
+    ],
+    "个股时间成本与退出标准": [
+        ("horizon-discipline", "stock holding horizon and exit discipline"),
+    ],
+    "市场盈利预期": [
+        ("narrative-cycle", "earnings setup versus market storylines"),
+    ],
+    "公司经营与管理层变化": [
+        ("narrative-cycle", "turnaround or management-change narrative"),
+    ],
+    "现金流与商业模式": [
+        ("narrative-cycle", "cash-flow and business-model story rotation"),
+    ],
+}
+
+POLICIES: dict[str, dict[str, Any]] = {
+    "balanced": {
+        "auto_delta_max": 10,
+        "agent_delta_max": 50,
+        "auto_allowed_scopes": {"sources", "index_log"},
+    },
+    "conservative": {
+        "auto_delta_max": 0,
+        "agent_delta_max": 10,
+        "auto_allowed_scopes": set(),
+    },
+}
+
 
 def now_compact() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -142,6 +189,8 @@ def normalize_item(row: dict[str, Any]) -> dict[str, Any]:
         "favorite_count": row.get("favorite_count", stats.get("likes", 0)),
         "retweet_count": row.get("retweet_count", stats.get("retweets", 0)),
         "view_count": row.get("view_count", stats.get("views", 0)),
+        "visibility": row.get("visibility") or row.get("audience") or "",
+        "is_subscriber": bool(row.get("is_subscriber") or row.get("subscriber_only")),
         "routing": row.get("routing") if isinstance(row.get("routing"), dict) else {},
         "topics": suggest_topics(text),
         "targets": extract_targets(text),
@@ -200,47 +249,215 @@ def slugify_topic(topic: str) -> str:
     return known.get(topic, re.sub(r"[^A-Za-z0-9]+", "-", topic).strip("-").lower() or "topic")
 
 
+def source_path_for_topic(wdir: Path, topic: str) -> Path:
+    filename = SOURCE_TARGETS.get(topic)
+    if filename:
+        return wdir / "sources" / filename
+    return wdir / "sources" / f"{slugify_topic(topic)}.md"
+
+
+def method_entries_for_topic(wdir: Path, topic: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    entries = []
+    for stem, reason in METHOD_TARGETS.get(topic, []):
+        path = wdir / "methods" / f"{stem}.md"
+        entries.append(
+            {
+                "name": stem,
+                "suggested_path": str(path),
+                "exists": path.exists(),
+                "reason": reason,
+                "tweet_ids": [item["id"] for item in items if topic in item.get("topics", [])],
+            }
+        )
+    return entries
+
+
+def needs_timeline_update(items: list[dict[str, Any]]) -> tuple[bool, list[str]]:
+    reasons = []
+    keywords = ("转", "修正", "最新", "最早", "大概率", "已定价", "100%", "90%", "不再", "证伪")
+    for item in items:
+        text = item.get("text", "")
+        topics = set(item.get("topics", []))
+        if "美联储与利率" in topics and any(keyword in text for keyword in keywords):
+            reasons.append(f"{item['id']}: Fed path or rate stance may have changed")
+        if "AI算力与Capex" in topics and "证伪" in text:
+            reasons.append(f"{item['id']}: AI capex stance may need timeline context")
+    return bool(reasons), reasons
+
+
+def needs_soul_update(items: list[dict[str, Any]], delta_count: int) -> tuple[bool, list[str]]:
+    reasons = []
+    core_topics = {"AI算力与Capex", "美联储与利率"}
+    high_core = [
+        item
+        for item in items
+        if item.get("quality") == "high" and core_topics.intersection(set(item.get("topics", [])))
+    ]
+    if len(high_core) >= 2:
+        reasons.append("multiple high-quality core-topic items may affect soul summaries")
+    if delta_count >= 20:
+        reasons.append("large enough delta to refresh top-level summaries")
+    return bool(reasons), reasons
+
+
 def build_target_groups(vault: Path, handle: str, items: list[dict[str, Any]]) -> dict[str, Any]:
     wdir = wiki_dir(vault, handle)
     topics = group_by_topic(items)
     target_ids = sorted({target for item in items for target in item.get("targets", [])})
+    method_entries_by_path: dict[str, dict[str, Any]] = {}
+    for topic in topics:
+        for entry in method_entries_for_topic(wdir, topic, items):
+            existing = method_entries_by_path.get(entry["suggested_path"])
+            if existing:
+                existing["tweet_ids"] = sorted(set(existing["tweet_ids"] + entry["tweet_ids"]))
+                existing["reason"] = f"{existing['reason']}; {entry['reason']}"
+            else:
+                method_entries_by_path[entry["suggested_path"]] = entry
+
+    timeline_needed, timeline_reasons = needs_timeline_update(items)
+    soul_needed, soul_reasons = needs_soul_update(items, len(items))
     return {
         "sources": [
             {
                 "topic": topic,
-                "suggested_path": str(wdir / "sources" / f"{slugify_topic(topic)}.md"),
+                "suggested_path": str(source_path_for_topic(wdir, topic)),
+                "exists": source_path_for_topic(wdir, topic).exists(),
                 "tweet_ids": [item["id"] for item in topic_items],
                 "reply_count": sum(1 for item in topic_items if item.get("is_reply")),
             }
             for topic, topic_items in topics.items()
         ],
-        "methods": [
-            {
-                "name": "根据市场信号动态修正判断",
-                "suggested_path": str(wdir / "methods" / "market-signal-revision.md"),
-                "tweet_ids": [item["id"] for item in items if "美联储与利率" in item.get("topics", [])],
-            },
-            {
-                "name": "个股时间成本与退出标准",
-                "suggested_path": str(wdir / "methods" / "stock-time-cost.md"),
-                "tweet_ids": [item["id"] for item in items if "个股时间成本与退出标准" in item.get("topics", [])],
-            },
-        ],
+        "methods": sorted(method_entries_by_path.values(), key=lambda entry: entry["suggested_path"]),
         "positions": [
             {
                 "target": target,
                 "suggested_path": str(wdir / "positions" / f"{target}.md"),
+                "exists": (wdir / "positions" / f"{target}.md").exists(),
                 "tweet_ids": [item["id"] for item in items if target in item.get("targets", [])],
             }
             for target in target_ids
         ],
-        "timeline": [{"suggested_path": str(wdir / "timeline.md")}],
-        "soul": [{"suggested_path": str(wdir / "soul.md")}],
+        "timeline": [
+            {
+                "suggested_path": str(wdir / "timeline.md"),
+                "exists": (wdir / "timeline.md").exists(),
+                "required": timeline_needed,
+                "reasons": timeline_reasons,
+            }
+        ],
+        "soul": [
+            {
+                "suggested_path": str(wdir / "soul.md"),
+                "exists": (wdir / "soul.md").exists(),
+                "required": soul_needed,
+                "reasons": soul_reasons,
+            }
+        ],
         "index_log": [
-            {"suggested_path": str(wdir / "_index.md")},
-            {"suggested_path": str(wdir / "_log.md")},
+            {"suggested_path": str(wdir / "_index.md"), "exists": (wdir / "_index.md").exists()},
+            {"suggested_path": str(wdir / "_log.md"), "exists": (wdir / "_log.md").exists()},
         ],
     }
+
+
+def touched_scopes(target_groups: dict[str, Any]) -> set[str]:
+    scopes = {"sources", "index_log"}
+    if target_groups.get("methods"):
+        scopes.add("methods")
+    if target_groups.get("positions"):
+        scopes.add("positions")
+    if any(entry.get("required") for entry in target_groups.get("timeline", [])):
+        scopes.add("timeline")
+    if any(entry.get("required") for entry in target_groups.get("soul", [])):
+        scopes.add("soul")
+    return scopes
+
+
+def build_risk_assessment(
+    info: dict[str, Any],
+    items: list[dict[str, Any]],
+    target_groups: dict[str, Any],
+    policy_name: str,
+) -> dict[str, Any]:
+    policy = POLICIES[policy_name]
+    delta_count = len(items)
+    reasons: list[str] = []
+    blockers: list[str] = []
+    scopes = touched_scopes(target_groups)
+
+    expected_delta = int(info.get("delta") or delta_count)
+    if expected_delta != delta_count:
+        blockers.append(f"delta_count_mismatch expected={expected_delta} actual={delta_count}")
+    for item in items:
+        if not item.get("id") or not item.get("text"):
+            blockers.append(f"missing required evidence fields for item {item.get('id') or '<unknown>'}")
+        if item.get("visibility") in {"subscriber", "private"} or item.get("is_subscriber"):
+            blockers.append(f"private/subscriber evidence requires manual handling: {item.get('id')}")
+
+    new_methods = [entry for entry in target_groups.get("methods", []) if not entry.get("exists")]
+    new_positions = [entry for entry in target_groups.get("positions", []) if not entry.get("exists")]
+    if new_methods:
+        reasons.append("new method target(s): " + ", ".join(entry["name"] for entry in new_methods))
+    if new_positions:
+        reasons.append("new position target(s): " + ", ".join(entry["target"] for entry in new_positions))
+    if "timeline" in scopes:
+        reasons.append("timeline current-stance candidate detected")
+    if "soul" in scopes:
+        reasons.append("soul/core-summary candidate detected")
+    if delta_count > policy["agent_delta_max"]:
+        reasons.append(f"delta_count {delta_count} exceeds agent review max {policy['agent_delta_max']}")
+    elif delta_count > policy["auto_delta_max"]:
+        reasons.append(f"delta_count {delta_count} exceeds auto max {policy['auto_delta_max']}")
+    if not scopes.issubset(policy["auto_allowed_scopes"]):
+        reasons.append("touches non-auto scopes: " + ", ".join(sorted(scopes - policy["auto_allowed_scopes"])))
+
+    if blockers:
+        risk_level = "blocked"
+        review_status = "blocked"
+        needs_user = True
+    elif (
+        delta_count > policy["agent_delta_max"]
+        or new_methods
+        or new_positions
+        or "timeline" in scopes
+        or "soul" in scopes
+    ):
+        risk_level = "high"
+        review_status = "user_review_required"
+        needs_user = True
+    elif delta_count > policy["auto_delta_max"] or not scopes.issubset(policy["auto_allowed_scopes"]):
+        risk_level = "medium"
+        review_status = "agent_review_required"
+        needs_user = False
+    else:
+        risk_level = "low"
+        review_status = "auto_eligible"
+        needs_user = False
+
+    return {
+        "policy": policy_name,
+        "risk_level": risk_level,
+        "review_status": review_status,
+        "needs_user": needs_user,
+        "scopes": sorted(scopes),
+        "delta_count": delta_count,
+        "reply_count": sum(1 for item in items if item.get("is_reply")),
+        "blockers": blockers,
+        "reasons": reasons,
+        "safe_to_auto_apply": review_status == "auto_eligible",
+        "safe_to_commit_watermark": False,
+        "next_step": next_step_for_status(review_status),
+    }
+
+
+def next_step_for_status(review_status: str) -> str:
+    if review_status == "auto_eligible":
+        return "auto apply may proceed after deterministic validators pass"
+    if review_status == "agent_review_required":
+        return "run agent review and validators; user review is optional unless validators fail"
+    if review_status == "user_review_required":
+        return "review report and proposed wiki changes before applying or committing watermark"
+    return "fix blockers before applying or committing watermark"
 
 
 def existing_paths_from_targets(target_groups: dict[str, Any]) -> list[str]:
@@ -281,7 +498,13 @@ def render_items_table(items: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def render_brief(handle: str, info: dict[str, Any], items: list[dict[str, Any]], target_groups: dict[str, Any]) -> str:
+def render_brief(
+    handle: str,
+    info: dict[str, Any],
+    items: list[dict[str, Any]],
+    target_groups: dict[str, Any],
+    risk: dict[str, Any],
+) -> str:
     topic_lines = []
     for entry in target_groups["sources"]:
         topic_lines.append(f"- {entry['topic']}: {len(entry['tweet_ids'])} items, replies {entry['reply_count']}")
@@ -294,9 +517,21 @@ def render_brief(handle: str, info: dict[str, Any], items: list[dict[str, Any]],
             f"- watermark_old: {info.get('watermark_old')}",
             f"- watermark_proposed: {info.get('watermark_proposed')}",
             f"- date_range: {' ~ '.join(info.get('date_range') or [])}",
+            f"- risk_level: {risk['risk_level']}",
+            f"- review_status: {risk['review_status']}",
+            f"- needs_user: {str(risk['needs_user']).lower()}",
             "",
             "## Suggested Topics",
             *topic_lines,
+            "",
+            "## Risk Assessment",
+            f"- policy: {risk['policy']}",
+            f"- scopes: {', '.join(risk['scopes'])}",
+            f"- next_step: {risk['next_step']}",
+            "- reasons:",
+            *(f"  - {reason}" for reason in (risk["reasons"] or ["none"])),
+            "- blockers:",
+            *(f"  - {blocker}" for blocker in (risk["blockers"] or ["none"])),
             "",
             "## Delta Items",
             render_items_table(items),
@@ -336,13 +571,21 @@ def render_prompt(title: str, handle: str, workspace: Path, target_groups: dict[
     )
 
 
-def write_prompt_pack(vault: Path, handle: str, pack_id: str, info: dict[str, Any], items: list[dict[str, Any]]) -> Path:
+def write_prompt_pack(
+    vault: Path,
+    handle: str,
+    pack_id: str,
+    info: dict[str, Any],
+    items: list[dict[str, Any]],
+    policy: str,
+) -> Path:
     wdir = wiki_dir(vault, handle)
     workspace = wdir / ".distill_prompt_packs" / pack_id
     prompts = workspace / "prompts"
     prompts.mkdir(parents=True, exist_ok=True)
 
     target_groups = build_target_groups(vault, handle, items)
+    risk = build_risk_assessment(info, items, target_groups, policy)
     manifest = {
         "handle": handle,
         "mode": "prompt-pack",
@@ -354,12 +597,18 @@ def write_prompt_pack(vault: Path, handle: str, pack_id: str, info: dict[str, An
         "date_range": info.get("date_range") or [],
         "delta_source": info.get("source"),
         "target_groups": target_groups,
-        "safe_to_commit_watermark": False,
+        "risk_assessment": risk,
+        "risk_level": risk["risk_level"],
+        "review_status": risk["review_status"],
+        "needs_user": risk["needs_user"],
+        "safe_to_auto_apply": risk["safe_to_auto_apply"],
+        "safe_to_commit_watermark": risk["safe_to_commit_watermark"],
     }
     write_json(workspace / "manifest.json", manifest)
+    write_json(workspace / "risk_assessment.json", risk)
     write_jsonl(workspace / "delta_items.jsonl", items)
     (workspace / "delta_brief.md").write_text(
-        render_brief(handle, info, items, target_groups),
+        render_brief(handle, info, items, target_groups, risk),
         encoding="utf-8",
     )
     write_json(workspace / "backup_plan.json", build_backup_plan(vault, handle, target_groups))
@@ -406,6 +655,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--vault", type=Path, default=DEFAULT_VAULT)
     parser.add_argument("--mode", choices=("prompt-pack",), default="prompt-pack")
     parser.add_argument("--pack-id", default="")
+    parser.add_argument("--policy", choices=tuple(POLICIES), default="balanced")
     return parser
 
 
@@ -419,7 +669,8 @@ def main(argv: list[str] | None = None) -> int:
             # Keep going, but surface the mismatch in the generated manifest/report.
             pass
         pack_id = args.pack_id or f"delta-{info.get('watermark_proposed', 'unknown')}-{now_compact()}"
-        workspace = write_prompt_pack(args.vault, args.handle, pack_id, info, items)
+        workspace = write_prompt_pack(args.vault, args.handle, pack_id, info, items, args.policy)
+        manifest = read_json(workspace / "manifest.json")
         print(
             json.dumps(
                 {
@@ -428,6 +679,10 @@ def main(argv: list[str] | None = None) -> int:
                     "workspace": str(workspace),
                     "delta": len(items),
                     "watermark_proposed": info.get("watermark_proposed"),
+                    "risk_level": manifest["risk_level"],
+                    "review_status": manifest["review_status"],
+                    "needs_user": manifest["needs_user"],
+                    "safe_to_auto_apply": manifest["safe_to_auto_apply"],
                 },
                 ensure_ascii=False,
                 indent=2,

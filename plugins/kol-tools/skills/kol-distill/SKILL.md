@@ -11,6 +11,7 @@ Use this skill to convert cleaned, indexed KOL evidence into the durable KOL twi
 
 - Reads `.clean_corpus.jsonl`, `.ingest_index.jsonl`, `.topic_buckets.json`, existing wiki pages, and `_cross/topic_registry.md`.
 - `prompt-pack` mode writes only a review workspace under `wiki/.distill_prompt_packs/`.
+- Each prompt pack includes a risk assessment so routine low-risk deltas do not require user review.
 - Writes KOL wiki artifacts only when the user explicitly asks to ingest or update.
 - Keeps raw tweets untouched.
 - Keeps tweet ids and links as evidence.
@@ -28,11 +29,16 @@ Use this skill to convert cleaned, indexed KOL evidence into the durable KOL twi
 ```bash
 python3 plugins/kol-tools/scripts/kol_distill.py <handle> \
   --vault /Users/saberrao/vault/kol \
-  --mode prompt-pack
+  --mode prompt-pack \
+  --policy balanced
 ```
 
-5. Review the generated `manifest.json`, `delta_brief.md`, `backup_plan.json`, and `prompts/*.md`.
-6. Only after review, use the prompts to update `sources`, `methods`, `positions`, then `timeline`, `soul`, `_index.md`, and `_log.md`.
-7. Commit the ingest watermark with `kol-delta --commit` only after the wiki updates are complete.
+5. Read `manifest.json` or `risk_assessment.json`:
+   - `auto_eligible`: agent/tooling may apply after validators pass; no user review required.
+   - `agent_review_required`: agent review required; user review only if validators fail or uncertainty remains.
+   - `user_review_required`: ask the user before applying or committing.
+   - `blocked`: fix blockers before applying or committing.
+6. Apply the generated guidance to update `sources`, `methods`, `positions`, then `timeline`, `soul`, `_index.md`, and `_log.md` according to the risk gate.
+7. Commit the ingest watermark with `kol-delta --commit` only after wiki updates and validators are complete.
 
 See `references/workflow.md` and `references/usage.md`.

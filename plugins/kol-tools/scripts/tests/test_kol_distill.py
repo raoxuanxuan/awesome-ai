@@ -115,6 +115,59 @@ class KolDistillTests(unittest.TestCase):
         )
         return vault
 
+    def build_low_risk_vault(self, root: Path) -> Path:
+        vault = root / "vault"
+        wiki = vault / "h" / "wiki"
+        (wiki / "sources").mkdir(parents=True)
+        (wiki / "methods").mkdir()
+        (wiki / "positions").mkdir()
+        (wiki / "sources" / "杂感与社区互动.md").write_text("# community\n", encoding="utf-8")
+        (wiki / "soul.md").write_text("# soul\n", encoding="utf-8")
+        (wiki / "timeline.md").write_text("# timeline\n", encoding="utf-8")
+        (wiki / "_index.md").write_text("# index\n", encoding="utf-8")
+        (wiki / "_log.md").write_text("# log\n", encoding="utf-8")
+
+        clean = wiki / ".clean_corpus.jsonl"
+        write_jsonl(
+            clean,
+            [
+                {
+                    "id": "201",
+                    "date": "2026-06-20",
+                    "lang": "zh",
+                    "text": "@a 大统华在多伦多已经排不上号了，大把中超比他们质量高",
+                    "url": "https://x.com/h/status/201",
+                    "is_reply": True,
+                    "quality": "medium",
+                    "routing": {"distill": True},
+                }
+            ],
+        )
+        (wiki / ".ingest_delta.json").write_text(
+            json.dumps(
+                {
+                    "handle": "h",
+                    "status": "ready",
+                    "delta": 1,
+                    "replies": 1,
+                    "watermark_old": "200",
+                    "watermark_proposed": "201",
+                    "date_range": ["2026-06-20", "2026-06-20"],
+                    "source": str(clean),
+                    "delta_tsv": str(wiki / ".ingest_delta.tsv"),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (wiki / ".ingest_delta.tsv").write_text(
+            "201\t2026-06-20\tzh\tR\t大统华在多伦多已经排不上号了\n",
+            encoding="utf-8",
+        )
+        return vault
+
     def test_prompt_pack_generates_review_workspace_without_mutating_wiki(self):
         with tempfile.TemporaryDirectory() as td:
             vault = self.build_vault(Path(td))
@@ -150,7 +203,11 @@ class KolDistillTests(unittest.TestCase):
             self.assertEqual(manifest["watermark_proposed"], "104")
             self.assertEqual(manifest["delta_count"], 2)
             self.assertEqual(manifest["reply_count"], 1)
+            self.assertEqual(manifest["risk_level"], "high")
+            self.assertEqual(manifest["review_status"], "user_review_required")
+            self.assertTrue(manifest["needs_user"])
             self.assertIn("sources", manifest["target_groups"])
+            self.assertTrue((workspace / "risk_assessment.json").exists())
             delta_ids = [
                 json.loads(line)["id"]
                 for line in (workspace / "delta_items.jsonl").read_text(encoding="utf-8").splitlines()
@@ -160,7 +217,60 @@ class KolDistillTests(unittest.TestCase):
             brief = (workspace / "delta_brief.md").read_text(encoding="utf-8")
             self.assertIn("Token价格", brief)
             self.assertIn("美联储与利率", brief)
+            self.assertIn("review_status: user_review_required", brief)
             self.assertEqual(soul.read_text(encoding="utf-8"), before)
+
+    def test_low_risk_source_only_delta_is_auto_eligible(self):
+        with tempfile.TemporaryDirectory() as td:
+            vault = self.build_low_risk_vault(Path(td))
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "h",
+                    "--vault",
+                    str(vault),
+                    "--mode",
+                    "prompt-pack",
+                    "--pack-id",
+                    "low-risk-pack",
+                ])
+
+            self.assertEqual(rc, 0)
+            result = json.loads(out.getvalue())
+            self.assertEqual(result["risk_level"], "low")
+            self.assertEqual(result["review_status"], "auto_eligible")
+            self.assertFalse(result["needs_user"])
+            self.assertTrue(result["safe_to_auto_apply"])
+            manifest = json.loads((Path(result["workspace"]) / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["risk_assessment"]["scopes"], ["index_log", "sources"])
+
+    def test_private_or_subscriber_evidence_blocks_distill(self):
+        with tempfile.TemporaryDirectory() as td:
+            vault = self.build_low_risk_vault(Path(td))
+            clean = vault / "h" / "wiki" / ".clean_corpus.jsonl"
+            payload = json.loads(clean.read_text(encoding="utf-8").splitlines()[0])
+            payload["is_subscriber"] = True
+            write_jsonl(clean, [payload])
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "h",
+                    "--vault",
+                    str(vault),
+                    "--mode",
+                    "prompt-pack",
+                    "--pack-id",
+                    "blocked-pack",
+                ])
+
+            self.assertEqual(rc, 0)
+            result = json.loads(out.getvalue())
+            self.assertEqual(result["risk_level"], "blocked")
+            self.assertEqual(result["review_status"], "blocked")
+            risk = json.loads((Path(result["workspace"]) / "risk_assessment.json").read_text(encoding="utf-8"))
+            self.assertTrue(risk["blockers"])
 
     def test_prompt_pack_refuses_when_delta_not_ready(self):
         with tempfile.TemporaryDirectory() as td:

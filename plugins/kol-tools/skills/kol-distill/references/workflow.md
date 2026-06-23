@@ -12,6 +12,7 @@ Inputs:
 Outputs:
 
 - `wiki/.distill_prompt_packs/<pack-id>/manifest.json`
+- `wiki/.distill_prompt_packs/<pack-id>/risk_assessment.json`
 - `wiki/.distill_prompt_packs/<pack-id>/delta_items.jsonl`
 - `wiki/.distill_prompt_packs/<pack-id>/delta_brief.md`
 - `wiki/.distill_prompt_packs/<pack-id>/backup_plan.json`
@@ -29,6 +30,7 @@ Outputs:
 Rules:
 
 - Start with `prompt-pack` mode for incremental ingest. It does not mutate durable wiki pages.
+- Use the risk gate in `risk_assessment.json`: auto-eligible deltas do not require user review, medium deltas require agent review, high-risk deltas require user review, blocked deltas must not be applied.
 - Back up any existing wiki file before modifying it.
 - Every durable claim must cite tweet ids or source pages.
 - Replies marked substantive by `kol-clean` are first-class evidence.
