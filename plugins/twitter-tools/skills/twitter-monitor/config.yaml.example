@@ -1,0 +1,27 @@
+users:
+  - username: "karpathy"
+    display_name: "Andrej Karpathy"
+    sinks: ["obsidian"]
+
+topics:
+  - name: "ClaudeCode"
+    users:
+      - "trq212"
+      - "bcherny"
+      - "amorriscode"
+      - "OmidMogasemi"
+      - "claudeai"
+
+settings:
+  translate_non_chinese: true
+  max_tweets_per_user: 20
+  include_replies: false
+  include_retweets: false
+  expand_thread: true
+  download_media: true
+  mark_skipped_as_seen: true
+
+sinks:
+  obsidian:
+    enabled: true
+    prompt_prefix: "保存到 AI"

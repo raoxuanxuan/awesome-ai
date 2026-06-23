@@ -1,11 +1,12 @@
 # Twitter Tools
 
-Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目前包含两个 skill：
+Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目前包含三个 skill：
 
 - `twitter-fetch`：只负责读取和规范化 X/Twitter 数据，输出 JSON 或 JSONL。
 - `twitter-media-fetch`：读取 `twitter-fetch` JSON 中引用的媒体 URL，下载到调用方指定目录，并输出 manifest JSON。
+- `twitter-monitor`：状态化监控编排器，定时检查配置用户的新内容，过滤、补全、下载媒体，并把标准内容交给 `content-to-obsidian`。
 
-它适合给上层工作流当底层数据源，例如保存到 Obsidian、监控 KOL、翻译推文、生成摘要等。但这些上层动作不在 `twitter-fetch` 里做。
+它适合给上层工作流当 Twitter/X 能力基座，例如保存到 Obsidian、监控用户、翻译推文、生成摘要等。但抓取、媒体下载、监控、写入仍然分层。
 
 ## 能做什么
 
@@ -27,11 +28,21 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 | 从 URL 下载媒体 | 直接传入一个或多个媒体 URL 下载 |
 | 输出 manifest | 输出本地路径、文件名、字节数、sha256、失败项 |
 
+`twitter-monitor` 当前支持：
+
+| 场景 | 能力 |
+| --- | --- |
+| 用户监控 | 按 `~/.twitter-monitor/config.yaml` 检查配置用户的新 timeline |
+| 新内容过滤 | 根据 state 去重，过滤低价值短推和纯转推 |
+| 内容补全 | 对候选内容调用 `twitter-fetch single --include-thread` |
+| Obsidian 归档 | 将 Content JSON 和 media manifest 交给 `content-to-obsidian` |
+
 它不会做：
 
-- 不写 Obsidian / vault / GitHub Pages / markdown 文件。
-- 不更新 `.state.json`、`.backfill_state.json` 或任何监控状态。
-- 不做分类、摘要、翻译、推送通知。
+- `twitter-fetch` / `twitter-media-fetch` 不写 Obsidian / vault / Markdown 文件。
+- `twitter-fetch` / `twitter-media-fetch` 不更新 `.state.json`、`.backfill_state.json` 或任何监控状态。
+- `twitter-monitor` 不写 GitHub Pages，不做 KOL raw history backfill。
+- 不做推送通知。
 - `twitter-fetch` 不下载图片；需要下载媒体时使用 `twitter-media-fetch`。
 - 不保存非 Twitter 平台数据。
 
@@ -50,11 +61,15 @@ plugins/twitter-tools/
     │   ├── bin/twitter-fetch
     │   ├── scripts/
     │   └── references/
-    └── twitter-media-fetch/
+    ├── twitter-media-fetch/
         ├── SKILL.md
         ├── bin/twitter-media-fetch
         ├── scripts/
         └── references/
+    └── twitter-monitor/
+        ├── SKILL.md
+        ├── config.yaml.example
+        └── scripts/
 ```
 
 其中：
@@ -117,6 +132,18 @@ claude plugin install twitter-tools@awesome-ai
 - `.cookies.example.json` 会自动创建，只是模板，不是可用登录态。
 - `venv/` 是 uv 使用的 Python 虚拟环境，默认放在 runtime 目录里，避免污染 plugin 源码目录。
 - `.cookies.json` 不会自动创建，因为它包含真实 X/Twitter 登录凭据。
+
+第一次使用 `twitter-monitor` 时，需要准备 monitor runtime：
+
+```text
+~/.twitter-monitor/
+├── config.yaml
+├── .state.json
+├── logs/
+└── tmp/
+```
+
+如果 `~/.twitter-monitor/config.yaml` 不存在，agent 应从已安装 skill 的 `config.yaml.example` 创建一份，再让用户确认监控账号和 sink 配置。monitor 的 X/Twitter cookie 仍然使用 `~/.twitter-fetch/.cookies.json`，Obsidian vault 仍然使用 `~/.obsidian-tools/vaults.json`。
 
 默认 cookie 路径：
 

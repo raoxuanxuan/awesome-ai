@@ -1,0 +1,4 @@
+interface:
+  display_name: "Twitter Monitor"
+  short_description: "Monitor configured X/Twitter users and save new content to Obsidian."
+  default_prompt: "Check configured X/Twitter users for new content and save valuable items to Obsidian."

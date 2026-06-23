@@ -1,18 +1,18 @@
 {
   "name": "twitter-tools",
-  "version": "0.2.0",
-  "description": "Fetch normalized X/Twitter content and download referenced media for downstream agent workflows.",
+  "version": "0.3.0",
+  "description": "Fetch normalized X/Twitter content, download referenced media, and monitor configured X/Twitter users for downstream agent workflows.",
   "author": {
     "name": "saberrao"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Twitter Tools",
-    "shortDescription": "Fetch X/Twitter data and media.",
-    "longDescription": "Twitter Tools provides X/Twitter data and media skills for upper-layer archive, monitor, translation, and knowledge-ingestion workflows. twitter-fetch emits JSON or JSONL; twitter-media-fetch downloads referenced media and emits a manifest.",
+    "shortDescription": "Fetch, download, and monitor X/Twitter.",
+    "longDescription": "Twitter Tools provides X/Twitter data, media, and monitor skills for upper-layer archive, translation, and knowledge-ingestion workflows. twitter-fetch emits JSON or JSONL; twitter-media-fetch downloads referenced media and emits a manifest; twitter-monitor orchestrates configured user monitoring and delegates Obsidian writes to content-to-obsidian.",
     "developerName": "saberrao",
     "category": "Productivity",
-    "capabilities": ["Fetch single tweets", "Fetch timelines", "Fetch threads", "Fetch user history", "Download tweet media"],
-    "defaultPrompt": "Fetch this X/Twitter URL and return normalized JSON."
+    "capabilities": ["Fetch single tweets", "Fetch timelines", "Fetch threads", "Fetch user history", "Download tweet media", "Monitor configured users"],
+    "defaultPrompt": "Fetch or monitor this X/Twitter content and return normalized output."
   }
 }

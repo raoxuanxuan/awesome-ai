@@ -7,8 +7,8 @@
     {
       "name": "twitter-tools",
       "source": "./plugins/twitter-tools",
-      "description": "Fetch normalized X/Twitter content and download referenced media for downstream agent workflows.",
-      "version": "0.2.1",
+      "description": "Fetch normalized X/Twitter content, download referenced media, and monitor configured X/Twitter users for downstream agent workflows.",
+      "version": "0.3.0",
       "author": {
         "name": "saberrao"
       }
