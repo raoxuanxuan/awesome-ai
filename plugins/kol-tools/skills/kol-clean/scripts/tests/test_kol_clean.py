@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kol_clean import classify_text
+from kol_clean import classify_text, raw_item
 
 
 class KolCleanTests(unittest.TestCase):
@@ -31,6 +31,34 @@ class KolCleanTests(unittest.TestCase):
         self.assertTrue(item["routing"]["position"])
         self.assertIn("has_ticker", item["reasons"])
         self.assertIn("has_reasoning", item["reasons"])
+
+    def test_raw_item_preserves_metadata_for_index(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "1.md"
+            path.write_text(
+                "---\n"
+                "id: 1\n"
+                "lang: zh\n"
+                "favorite_count: 7\n"
+                "retweet_count: 2\n"
+                "reply_count: 3\n"
+                "view_count: 100\n"
+                "media_count: 1\n"
+                "is_thread_part: true\n"
+                "---\n"
+                "$NVDA 因为需求强\n",
+                encoding="utf-8",
+            )
+            item = raw_item(path)
+            self.assertEqual(item["lang"], "zh")
+            self.assertEqual(item["favorite_count"], 7)
+            self.assertEqual(item["retweet_count"], 2)
+            self.assertEqual(item["reply_count"], 3)
+            self.assertEqual(item["view_count"], 100)
+            self.assertEqual(item["media_count"], 1)
+            self.assertTrue(item["is_thread_part"])
 
 
 if __name__ == "__main__":
