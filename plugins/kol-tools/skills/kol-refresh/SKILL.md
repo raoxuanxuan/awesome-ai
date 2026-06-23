@@ -16,9 +16,13 @@ Use this skill for KOL-specific raw archive maintenance.
 - Does not clean, summarize, distill, ask, or debate.
 - Does not write Obsidian vaults outside the KOL vault.
 
-## Phase 1 Status
+## Script
 
-This plugin phase provides the skill boundary and user-facing contract. The write-capable `kol_refresh.py` implementation lands in the next phase after `kol-clean` and health checks are validated.
+Use the plugin-level script:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_refresh.py --handle <handle> --incremental --max-pages 1 --dry-run
+```
 
 ## Workflow
 

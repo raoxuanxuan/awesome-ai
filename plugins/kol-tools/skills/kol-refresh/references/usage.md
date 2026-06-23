@@ -2,7 +2,7 @@
 
 `kol-refresh` is the KOL layer above `twitter-fetch`.
 
-Planned dry-run shape:
+Dry-run shape:
 
 ```bash
 python3 plugins/kol-tools/scripts/kol_refresh.py \
@@ -13,7 +13,7 @@ python3 plugins/kol-tools/scripts/kol_refresh.py \
   --dry-run
 ```
 
-Planned write shape:
+Write shape:
 
 ```bash
 python3 plugins/kol-tools/scripts/kol_refresh.py \
@@ -24,3 +24,13 @@ python3 plugins/kol-tools/scripts/kol_refresh.py \
 ```
 
 The command will delegate fetching to `twitter-fetch history`. It will not ask for cookies itself; use `twitter-fetch` setup for X/Twitter login state.
+
+Fixture/import mode:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_refresh.py \
+  --vault /tmp/kol-vault \
+  --handle sample \
+  --input-jsonl plugins/kol-tools/scripts/tests/fixtures/twitter_fetch_history.jsonl \
+  --dry-run
+```

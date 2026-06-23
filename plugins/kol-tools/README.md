@@ -52,6 +52,7 @@ The plugin can create derived files such as `.clean_corpus.jsonl`, `.ingest_inde
 python3 plugins/kol-tools/skills/kol-clean/scripts/kol_clean.py TJ_Research --vault /Users/saberrao/vault/kol --dry-run
 python3 plugins/kol-tools/skills/kol-index/scripts/kol_index.py TJ_Research --vault /Users/saberrao/vault/kol --dry-run
 python3 plugins/kol-tools/scripts/registry_health.py --vault /Users/saberrao/vault/kol
+python3 plugins/kol-tools/scripts/kol_refresh.py --vault /Users/saberrao/vault/kol --handle TJ_Research --incremental --max-pages 1 --dry-run
 ```
 
 ## Privacy
