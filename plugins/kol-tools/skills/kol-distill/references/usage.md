@@ -75,12 +75,62 @@ python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research \
   --policy conservative
 ```
 
-After the generated prompts are reviewed and wiki files are updated, advance the
-watermark explicitly:
+## Apply / Validate / Commit
+
+Apply a low-risk pack:
 
 ```bash
-python3 plugins/kol-tools/scripts/kol_delta.py TJ_Research \
+python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research \
   --vault /Users/saberrao/vault/kol \
-  --commit <watermark_proposed> \
-  --added <delta_count>
+  --mode apply \
+  --pack-id <pack-id>
 ```
+
+Default `apply` only accepts `auto_eligible` packs. It writes:
+
+```text
+wiki/.distill_prompt_packs/<pack-id>/apply_result.json
+```
+
+It backs up changed files and appends tweet-id-cited evidence to the selected
+source pages plus `_log.md`.
+
+For a reviewed non-auto pack:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research \
+  --vault /Users/saberrao/vault/kol \
+  --mode apply \
+  --pack-id <pack-id> \
+  --force
+```
+
+Blocked packs still refuse to apply.
+
+Validate coverage:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research \
+  --vault /Users/saberrao/vault/kol \
+  --mode validate \
+  --pack-id <pack-id>
+```
+
+This writes `validation_result.json` and checks every delta tweet id appears in
+durable wiki files, not merely inside the prompt pack.
+
+Commit watermark:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research \
+  --vault /Users/saberrao/vault/kol \
+  --mode commit \
+  --pack-id <pack-id>
+```
+
+`commit` refuses unless `validation_result.json` has
+`safe_to_commit_watermark: true`.
+
+`kol_delta.py --commit` remains a lower-level primitive for emergency repair.
+Normal distillation should use `kol_distill.py --mode commit` so validation and
+watermark movement stay coupled.

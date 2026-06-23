@@ -126,6 +126,27 @@ class KolDistillTests(unittest.TestCase):
         (wiki / "timeline.md").write_text("# timeline\n", encoding="utf-8")
         (wiki / "_index.md").write_text("# index\n", encoding="utf-8")
         (wiki / "_log.md").write_text("# log\n", encoding="utf-8")
+        (wiki / ".ingest_meta.json").write_text(
+            json.dumps(
+                {
+                    "ingest_watermark_id": "200",
+                    "last_ingest": "2026-06-19",
+                    "tweet_count_indexed": 1,
+                    "history": [
+                        {
+                            "date": "2026-06-19",
+                            "event": "bootstrap",
+                            "added": 0,
+                            "watermark": "200",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
         clean = wiki / ".clean_corpus.jsonl"
         write_jsonl(
@@ -271,6 +292,112 @@ class KolDistillTests(unittest.TestCase):
             self.assertEqual(result["review_status"], "blocked")
             risk = json.loads((Path(result["workspace"]) / "risk_assessment.json").read_text(encoding="utf-8"))
             self.assertTrue(risk["blockers"])
+
+    def test_apply_validate_commit_low_risk_pack(self):
+        with tempfile.TemporaryDirectory() as td:
+            vault = self.build_low_risk_vault(Path(td))
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "h",
+                    "--vault",
+                    str(vault),
+                    "--mode",
+                    "prompt-pack",
+                    "--pack-id",
+                    "low-risk-pack",
+                ])
+            self.assertEqual(rc, 0)
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "h",
+                    "--vault",
+                    str(vault),
+                    "--mode",
+                    "apply",
+                    "--pack-id",
+                    "low-risk-pack",
+                ])
+            self.assertEqual(rc, 0)
+            apply_result = json.loads(out.getvalue())
+            self.assertEqual(apply_result["status"], "applied")
+            workspace = Path(apply_result["workspace"])
+            self.assertTrue((workspace / "apply_result.json").exists())
+
+            source_text = (vault / "h" / "wiki" / "sources" / "杂感与社区互动.md").read_text(encoding="utf-8")
+            self.assertIn("201", source_text)
+            self.assertIn("大统华", source_text)
+            log_text = (vault / "h" / "wiki" / "_log.md").read_text(encoding="utf-8")
+            self.assertIn("low-risk-pack", log_text)
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "h",
+                    "--vault",
+                    str(vault),
+                    "--mode",
+                    "validate",
+                    "--pack-id",
+                    "low-risk-pack",
+                ])
+            self.assertEqual(rc, 0)
+            validate_result = json.loads(out.getvalue())
+            self.assertEqual(validate_result["status"], "validated")
+            self.assertTrue(validate_result["safe_to_commit_watermark"])
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "h",
+                    "--vault",
+                    str(vault),
+                    "--mode",
+                    "commit",
+                    "--pack-id",
+                    "low-risk-pack",
+                ])
+            self.assertEqual(rc, 0)
+            commit_result = json.loads(out.getvalue())
+            self.assertEqual(commit_result["status"], "committed")
+            meta = json.loads((vault / "h" / "wiki" / ".ingest_meta.json").read_text(encoding="utf-8"))
+            self.assertEqual(meta["ingest_watermark_id"], "201")
+
+    def test_apply_refuses_high_risk_pack_without_force(self):
+        with tempfile.TemporaryDirectory() as td:
+            vault = self.build_vault(Path(td))
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "h",
+                    "--vault",
+                    str(vault),
+                    "--mode",
+                    "prompt-pack",
+                    "--pack-id",
+                    "high-risk-pack",
+                ])
+            self.assertEqual(rc, 0)
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "h",
+                    "--vault",
+                    str(vault),
+                    "--mode",
+                    "apply",
+                    "--pack-id",
+                    "high-risk-pack",
+                ])
+            self.assertEqual(rc, 2)
+            result = json.loads(out.getvalue())
+            self.assertEqual(result["status"], "apply_refused")
+            self.assertIn("user_review_required", result["reason"])
 
     def test_prompt_pack_refuses_when_delta_not_ready(self):
         with tempfile.TemporaryDirectory() as td:

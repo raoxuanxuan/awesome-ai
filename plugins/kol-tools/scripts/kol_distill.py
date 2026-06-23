@@ -11,12 +11,14 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from kol_common import DEFAULT_VAULT, wiki_dir
+from kol_delta import commit as commit_delta
 
 
 TOPIC_RULES: list[tuple[str, tuple[str, ...]]] = [
@@ -87,6 +89,10 @@ def today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -102,6 +108,31 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
         "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n" for row in rows),
         encoding="utf-8",
     )
+
+
+def workspace_path(vault: Path, handle: str, pack_id: str) -> Path:
+    if not pack_id:
+        raise ValueError("--pack-id is required for apply/validate/commit")
+    return wiki_dir(vault, handle) / ".distill_prompt_packs" / pack_id
+
+
+def load_workspace(vault: Path, handle: str, pack_id: str) -> tuple[Path, dict[str, Any], list[dict[str, Any]]]:
+    workspace = workspace_path(vault, handle, pack_id)
+    manifest_path = workspace / "manifest.json"
+    items_path = workspace / "delta_items.jsonl"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"missing manifest: {manifest_path}")
+    if not items_path.exists():
+        raise FileNotFoundError(f"missing delta items: {items_path}")
+    return workspace, read_json(manifest_path), load_jsonl(items_path)
+
+
+def update_manifest(workspace: Path, updates: dict[str, Any]) -> dict[str, Any]:
+    manifest_path = workspace / "manifest.json"
+    manifest = read_json(manifest_path)
+    manifest.update(updates)
+    write_json(manifest_path, manifest)
+    return manifest
 
 
 def load_delta_info(vault: Path, handle: str) -> dict[str, Any]:
@@ -649,13 +680,193 @@ def write_prompt_pack(
     return workspace
 
 
+def backup_file(path: Path, pack_id: str) -> str:
+    backup = Path(f"{path}.bak-before-distill-{pack_id}-{now_compact()}")
+    shutil.copy2(path, backup)
+    return str(backup)
+
+
+def render_source_append(pack_id: str, topic: str, items: list[dict[str, Any]]) -> str:
+    lines = [
+        "",
+        f"## Distill Update: {pack_id}",
+        "",
+        f"Topic: {topic}",
+        "",
+    ]
+    for item in items:
+        kind = "reply" if item.get("is_reply") else "tweet"
+        text = str(item.get("text") or "").replace("\n", " ").strip()
+        if len(text) > 220:
+            text = text[:217] + "..."
+        url = item.get("url") or f"https://x.com/i/status/{item['id']}"
+        lines.append(f"- [{kind} {item['id']}]({url}) ({item.get('date', '')}) — {text}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def apply_workspace(vault: Path, handle: str, pack_id: str, *, force: bool = False) -> tuple[int, dict[str, Any]]:
+    workspace, manifest, items = load_workspace(vault, handle, pack_id)
+    review_status = manifest.get("review_status")
+    if review_status != "auto_eligible" and not force:
+        return 2, {
+            "handle": handle,
+            "status": "apply_refused",
+            "workspace": str(workspace),
+            "reason": f"review_status={review_status}; use --force only after review",
+        }
+    if review_status == "blocked":
+        return 2, {
+            "handle": handle,
+            "status": "apply_refused",
+            "workspace": str(workspace),
+            "reason": "blocked distill pack cannot be applied",
+        }
+
+    item_by_id = {str(item["id"]): item for item in items}
+    changed_files: list[str] = []
+    backups: list[str] = []
+    for source in manifest.get("target_groups", {}).get("sources", []):
+        path = Path(str(source.get("suggested_path") or ""))
+        if not path.exists():
+            if not force:
+                return 2, {
+                    "handle": handle,
+                    "status": "apply_refused",
+                    "workspace": str(workspace),
+                    "reason": f"source target does not exist: {path}",
+                }
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"# {source.get('topic') or path.stem}\n", encoding="utf-8")
+        current = path.read_text(encoding="utf-8")
+        marker = f"## Distill Update: {pack_id}"
+        if marker in current:
+            continue
+        source_items = [item_by_id[tweet_id] for tweet_id in source.get("tweet_ids", []) if tweet_id in item_by_id]
+        backups.append(backup_file(path, pack_id))
+        path.write_text(
+            current.rstrip() + "\n" + render_source_append(pack_id, str(source.get("topic") or ""), source_items),
+            encoding="utf-8",
+        )
+        changed_files.append(str(path))
+
+    log_path = wiki_dir(vault, handle) / "_log.md"
+    if log_path.exists():
+        current = log_path.read_text(encoding="utf-8")
+    else:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        current = "# ingest log\n"
+    marker = f"## Distill Apply: {pack_id}"
+    if marker not in current:
+        if log_path.exists():
+            backups.append(backup_file(log_path, pack_id))
+        log_lines = [
+            "",
+            marker,
+            "",
+            f"- applied_at: {now_iso()}",
+            f"- review_status: {review_status}",
+            f"- delta_count: {manifest.get('delta_count')}",
+            f"- watermark_proposed: {manifest.get('watermark_proposed')}",
+            f"- changed_files: {len(changed_files)}",
+            "",
+        ]
+        log_path.write_text(current.rstrip() + "\n" + "\n".join(log_lines), encoding="utf-8")
+        changed_files.append(str(log_path))
+
+    result = {
+        "handle": handle,
+        "status": "applied",
+        "workspace": str(workspace),
+        "pack_id": pack_id,
+        "changed_files": changed_files,
+        "backups": backups,
+        "applied_at": now_iso(),
+    }
+    write_json(workspace / "apply_result.json", result)
+    update_manifest(workspace, {"apply_status": "applied", "applied_at": result["applied_at"]})
+    return 0, result
+
+
+def durable_markdown_files(wdir: Path) -> list[Path]:
+    candidates = [wdir / "soul.md", wdir / "timeline.md", wdir / "_index.md", wdir / "_log.md"]
+    for subdir in ("sources", "methods", "positions"):
+        root = wdir / subdir
+        if root.exists():
+            candidates.extend(sorted(root.glob("*.md")))
+    return [path for path in candidates if path.exists() and ".bak-" not in path.name]
+
+
+def validate_workspace(vault: Path, handle: str, pack_id: str) -> tuple[int, dict[str, Any]]:
+    workspace, manifest, items = load_workspace(vault, handle, pack_id)
+    wdir = wiki_dir(vault, handle)
+    markdown = durable_markdown_files(wdir)
+    corpus = "\n".join(path.read_text(encoding="utf-8") for path in markdown)
+    missing_ids = [str(item["id"]) for item in items if str(item["id"]) not in corpus]
+    blockers = list(manifest.get("risk_assessment", {}).get("blockers", []))
+    safe = not missing_ids and not blockers
+    result = {
+        "handle": handle,
+        "status": "validated" if safe else "validation_failed",
+        "workspace": str(workspace),
+        "pack_id": pack_id,
+        "checked_files": [str(path) for path in markdown],
+        "missing_ids": missing_ids,
+        "blockers": blockers,
+        "safe_to_commit_watermark": safe,
+        "validated_at": now_iso(),
+    }
+    write_json(workspace / "validation_result.json", result)
+    update_manifest(
+        workspace,
+        {
+            "validation_status": result["status"],
+            "validated_at": result["validated_at"],
+            "safe_to_commit_watermark": safe,
+        },
+    )
+    return (0 if safe else 2), result
+
+
+def commit_workspace(vault: Path, handle: str, pack_id: str) -> tuple[int, dict[str, Any]]:
+    workspace, manifest, _items = load_workspace(vault, handle, pack_id)
+    validation_path = workspace / "validation_result.json"
+    if not validation_path.exists():
+        return 2, {
+            "handle": handle,
+            "status": "commit_refused",
+            "workspace": str(workspace),
+            "reason": "missing validation_result.json; run --mode validate first",
+        }
+    validation = read_json(validation_path)
+    if not validation.get("safe_to_commit_watermark"):
+        return 2, {
+            "handle": handle,
+            "status": "commit_refused",
+            "workspace": str(workspace),
+            "reason": "validation did not mark safe_to_commit_watermark",
+        }
+    result = commit_delta(
+        vault,
+        handle,
+        str(manifest.get("watermark_proposed") or ""),
+        int(manifest.get("delta_count") or 0),
+    )
+    result["workspace"] = str(workspace)
+    result["pack_id"] = pack_id
+    write_json(workspace / "commit_result.json", result)
+    update_manifest(workspace, {"commit_status": result.get("status"), "committed_at": now_iso()})
+    return (0 if result.get("status") in {"committed", "commit_noop"} else 2), result
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Prepare KOL distillation workspaces")
     parser.add_argument("handle")
     parser.add_argument("--vault", type=Path, default=DEFAULT_VAULT)
-    parser.add_argument("--mode", choices=("prompt-pack",), default="prompt-pack")
+    parser.add_argument("--mode", choices=("prompt-pack", "apply", "validate", "commit"), default="prompt-pack")
     parser.add_argument("--pack-id", default="")
     parser.add_argument("--policy", choices=tuple(POLICIES), default="balanced")
+    parser.add_argument("--force", action="store_true", help="allow apply for reviewed non-auto packs; blocked packs still refuse")
     return parser
 
 
@@ -663,6 +874,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.mode == "apply":
+            rc, result = apply_workspace(args.vault, args.handle, args.pack_id, force=args.force)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return rc
+        if args.mode == "validate":
+            rc, result = validate_workspace(args.vault, args.handle, args.pack_id)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return rc
+        if args.mode == "commit":
+            rc, result = commit_workspace(args.vault, args.handle, args.pack_id)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return rc
+
         info = load_delta_info(args.vault, args.handle)
         items = load_delta_items(info)
         if len(items) != int(info.get("delta") or len(items)):
