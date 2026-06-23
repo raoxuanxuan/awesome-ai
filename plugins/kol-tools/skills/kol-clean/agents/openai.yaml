@@ -1,0 +1,4 @@
+interface:
+  display_name: "KOL Clean"
+  short_description: "Clean and score KOL raw tweet archives."
+  default_prompt: "Clean this KOL raw archive and report corpus quality without deleting raw data."

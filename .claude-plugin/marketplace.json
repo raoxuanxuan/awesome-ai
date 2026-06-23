@@ -21,6 +21,15 @@
       "author": {
         "name": "saberrao"
       }
+    },
+    {
+      "name": "kol-tools",
+      "source": "./plugins/kol-tools",
+      "description": "Build and query private KOL digital-twin archives from fetched social content.",
+      "version": "0.1.0",
+      "author": {
+        "name": "saberrao"
+      }
     }
   ]
 }

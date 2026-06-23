@@ -1,0 +1,4 @@
+interface:
+  display_name: "KOL Index"
+  short_description: "Build deterministic KOL corpus indexes."
+  default_prompt: "Build or inspect the deterministic index for this KOL archive."
