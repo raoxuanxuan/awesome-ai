@@ -9,7 +9,8 @@ KOL Tools is a private KOL digital-twin plugin for Codex and Claude Code.
 - Cleans low-information tweets without deleting raw data.
 - Preserves substantive replies and routes them into methods, positions, sources, voice, or timeline.
 - Builds deterministic indexes and stats.
-- Provides prompts and scripts for KOL distillation, ask, and debate workflows.
+- Generates reviewable distillation prompt packs before KOL wiki updates.
+- Provides prompts and scripts for KOL ask and debate workflows.
 
 ## What It Does Not Do
 
@@ -68,7 +69,26 @@ python3 plugins/kol-tools/skills/kol-index/scripts/kol_index.py TJ_Research --va
 python3 plugins/kol-tools/scripts/registry_health.py --vault /Users/saberrao/vault/kol
 python3 plugins/kol-tools/scripts/kol_refresh.py --vault /Users/saberrao/vault/kol --handle TJ_Research --incremental --max-pages 1 --dry-run
 python3 plugins/kol-tools/scripts/kol_delta.py TJ_Research --vault /Users/saberrao/vault/kol --cap 120
+python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode prompt-pack
+python3 plugins/kol-tools/scripts/kol_ask.py TJ_Research --vault /Users/saberrao/vault/kol --question "怎么看 NVDA 和 AI capex?" --mode context-pack
 ```
+
+`kol_distill.py --mode prompt-pack` writes only a review workspace under:
+
+```text
+/Users/saberrao/vault/kol/<handle>/wiki/.distill_prompt_packs/
+```
+
+It does not modify durable wiki pages or advance `.ingest_meta.json`.
+
+`kol_ask.py --mode context-pack` writes only a question-specific context
+workspace under:
+
+```text
+/Users/saberrao/vault/kol/<handle>/wiki/.ask_context_packs/
+```
+
+It does not call a model; use the generated `prompt.md` with the runner of choice.
 
 ## Privacy
 

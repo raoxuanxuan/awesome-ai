@@ -11,6 +11,11 @@ Inputs:
 
 Outputs:
 
+- `wiki/.distill_prompt_packs/<pack-id>/manifest.json`
+- `wiki/.distill_prompt_packs/<pack-id>/delta_items.jsonl`
+- `wiki/.distill_prompt_packs/<pack-id>/delta_brief.md`
+- `wiki/.distill_prompt_packs/<pack-id>/backup_plan.json`
+- `wiki/.distill_prompt_packs/<pack-id>/prompts/*.md`
 - `wiki/.topic_buckets.json`
 - `wiki/sources/*.md`
 - `wiki/methods/*.md`
@@ -23,6 +28,7 @@ Outputs:
 
 Rules:
 
+- Start with `prompt-pack` mode for incremental ingest. It does not mutate durable wiki pages.
 - Back up any existing wiki file before modifying it.
 - Every durable claim must cite tweet ids or source pages.
 - Replies marked substantive by `kol-clean` are first-class evidence.
@@ -36,6 +42,14 @@ python3 plugins/kol-tools/scripts/kol_delta.py <handle> --vault /Users/saberrao/
 ```
 
 If status is `ready`, integrate `.ingest_delta.tsv` into existing wiki pages, then commit:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_distill.py <handle> \
+  --vault /Users/saberrao/vault/kol \
+  --mode prompt-pack
+```
+
+Review the generated workspace before editing wiki files. After sources/methods/positions/timeline/soul/index/log are updated, commit the watermark:
 
 ```bash
 python3 plugins/kol-tools/scripts/kol_delta.py <handle> --vault /Users/saberrao/vault/kol --commit <watermark_proposed> --added <n>

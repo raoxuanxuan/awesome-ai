@@ -10,18 +10,29 @@ Use this skill to convert cleaned, indexed KOL evidence into the durable KOL twi
 ## Boundary
 
 - Reads `.clean_corpus.jsonl`, `.ingest_index.jsonl`, `.topic_buckets.json`, existing wiki pages, and `_cross/topic_registry.md`.
+- `prompt-pack` mode writes only a review workspace under `wiki/.distill_prompt_packs/`.
 - Writes KOL wiki artifacts only when the user explicitly asks to ingest or update.
 - Keeps raw tweets untouched.
 - Keeps tweet ids and links as evidence.
 - Does not fetch X/Twitter.
 - Does not answer user questions directly; use `kol-ask` after distillation.
+- Does not advance `.ingest_meta.json`; only `kol-delta --commit` may do that after reviewed wiki changes.
 
 ## Workflow
 
 1. Run `kol-clean`.
 2. Run `kol-index`.
-3. Phase B: cluster usable items into topic buckets.
-4. Phase C: compile `sources`, `methods`, `positions`, then `timeline` and `soul`.
-5. Write `_index.md`, `_log.md`, and `.distill_meta.json`.
+3. Run `kol-delta` until status is `ready`.
+4. Generate a prompt pack:
 
-See `references/workflow.md`.
+```bash
+python3 plugins/kol-tools/scripts/kol_distill.py <handle> \
+  --vault /Users/saberrao/vault/kol \
+  --mode prompt-pack
+```
+
+5. Review the generated `manifest.json`, `delta_brief.md`, `backup_plan.json`, and `prompts/*.md`.
+6. Only after review, use the prompts to update `sources`, `methods`, `positions`, then `timeline`, `soul`, `_index.md`, and `_log.md`.
+7. Commit the ingest watermark with `kol-delta --commit` only after the wiki updates are complete.
+
+See `references/workflow.md` and `references/usage.md`.
