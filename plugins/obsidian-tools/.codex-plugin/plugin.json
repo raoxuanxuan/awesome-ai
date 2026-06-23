@@ -1,18 +1,18 @@
 {
   "name": "obsidian-tools",
-  "version": "0.1.0",
-  "description": "Save normalized external content into Obsidian vaults for downstream knowledge workflows.",
+  "version": "0.2.0",
+  "description": "Route external content and save normalized content into Obsidian vaults for downstream knowledge workflows.",
   "author": {
     "name": "saberrao"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Obsidian Tools",
-    "shortDescription": "Save normalized content to Obsidian.",
-    "longDescription": "Obsidian Tools provides a generic content-to-Obsidian ingestion skill. Source-specific fetchers such as twitter-fetch or china-content-fetcher produce normalized content JSON; content-to-obsidian selects a vault, creates Markdown, references media manifests, and writes vault files.",
+    "shortDescription": "Route content into Obsidian.",
+    "longDescription": "Obsidian Tools provides a user-facing save-to-obsidian router plus a generic content-to-Obsidian ingestion layer. Source-specific fetchers such as twitter-fetch or china-content-fetcher produce normalized content JSON; content-to-obsidian selects a vault, creates Markdown, references media manifests, and writes vault files.",
     "developerName": "saberrao",
     "category": "Productivity",
-    "capabilities": ["Save normalized content", "Write Obsidian Markdown", "Route to vaults", "Use media manifests"],
-    "defaultPrompt": "Save this normalized content into the configured Obsidian vault."
+    "capabilities": ["Route source URLs", "Save normalized content", "Write Obsidian Markdown", "Route to vaults", "Use media manifests"],
+    "defaultPrompt": "Save this URL or normalized content into the configured Obsidian vault."
   }
 }

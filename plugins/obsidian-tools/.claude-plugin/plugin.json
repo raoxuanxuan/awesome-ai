@@ -1,8 +1,8 @@
 {
   "name": "obsidian-tools",
   "displayName": "Obsidian Tools",
-  "version": "0.1.0",
-  "description": "Save normalized external content into Obsidian vaults for downstream knowledge workflows.",
+  "version": "0.2.0",
+  "description": "Route external content and save normalized content into Obsidian vaults for downstream knowledge workflows.",
   "author": {
     "name": "saberrao"
   },

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Save to Obsidian"
+  short_description: "Route external content into Obsidian."
+  default_prompt: "Save this URL or normalized content into the configured Obsidian vault."
