@@ -1,0 +1,4 @@
+interface:
+  display_name: "Twitter Fetch"
+  short_description: "Fetch and normalize X/Twitter content."
+  default_prompt: "Fetch this X/Twitter content and return normalized JSON."

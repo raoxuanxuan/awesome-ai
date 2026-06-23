@@ -1,0 +1,17 @@
+{
+  "name": "awesome-ai",
+  "owner": {
+    "name": "saberrao"
+  },
+  "plugins": [
+    {
+      "name": "twitter-tools",
+      "source": "./plugins/twitter-tools",
+      "description": "Fetch and normalize X/Twitter content for downstream agent workflows.",
+      "version": "0.1.0",
+      "author": {
+        "name": "saberrao"
+      }
+    }
+  ]
+}

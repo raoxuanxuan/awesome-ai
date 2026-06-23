@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+BIN_DIR="${SCRIPT_PATH%/*}"
+SKILL_DIR="$(cd "${BIN_DIR}/.." && pwd)"
+RUNTIME_DIR="${TWITTER_FETCH_RUNTIME:-${HOME}/.twitter-fetch}"
+COOKIE_EXAMPLE="${RUNTIME_DIR}/.cookies.example.json"
+UV_PROJECT_ENVIRONMENT="${TWITTER_FETCH_VENV:-${RUNTIME_DIR}/venv}"
+export UV_PROJECT_ENVIRONMENT
+
+mkdir -p "${RUNTIME_DIR}/cache" "${RUNTIME_DIR}/logs" "${RUNTIME_DIR}/tmp"
+if [[ ! -f "${COOKIE_EXAMPLE}" ]]; then
+  printf '%s\n' \
+    '{' \
+    '  "auth_token": "",' \
+    '  "ct0": ""' \
+    '}' > "${COOKIE_EXAMPLE}"
+  chmod 600 "${COOKIE_EXAMPLE}"
+fi
+
+if ! command -v uv >/dev/null 2>&1; then
+  printf '%s\n' \
+    "twitter-fetch requires uv." \
+    "" \
+    "Install uv:" \
+    "  curl -LsSf https://astral.sh/uv/install.sh | sh" \
+    "" \
+    "Or run explicit bootstrap:" \
+    "  ${SKILL_DIR}/scripts/bootstrap.sh --install-uv" >&2
+  exit 127
+fi
+
+exec uv run --project "${SKILL_DIR}" python "${SKILL_DIR}/scripts/twitter_fetch.py" "$@"

@@ -1,0 +1,10 @@
+{
+  "name": "twitter-tools",
+  "displayName": "Twitter Tools",
+  "version": "0.1.0",
+  "description": "Fetch and normalize X/Twitter content for downstream agent workflows.",
+  "author": {
+    "name": "saberrao"
+  },
+  "skills": "./skills/"
+}
