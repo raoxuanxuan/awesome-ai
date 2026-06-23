@@ -40,7 +40,8 @@ When source support is missing, say exactly which fetcher is missing and stop be
    - Other sources: only invoke a media fetcher that belongs to that source or a generic media fetcher. Do not reimplement media download here.
 5. Delegate writing.
    - Call `content-to-obsidian` with the Content JSON and optional media manifest.
-   - Let `content-to-obsidian` choose the vault, render Markdown, and enforce vault path safety.
+   - Let `content-to-obsidian` check or create `~/.obsidian-tools/vaults.json`, choose the vault, render Markdown, and enforce vault path safety.
+   - If vault config is missing or incomplete, stop after the config check and report the exact `config_path` and blocked vault. Do not write a partial file.
 6. Report the result.
    - Saved file path.
    - Selected vault and mode.
@@ -59,7 +60,7 @@ Common prompt patterns:
 - `保存到投资: <url>`
 - `保存到知识库: <url>`
 
-If `~/.obsidian-tools/vaults.json` is missing or still contains placeholder roots, ask the user to configure it before writing.
+If `~/.obsidian-tools/vaults.json` is missing, `content-to-obsidian` should create it from `vaults.json.example`, then block the write and ask the user to fill real roots. If it exists but still contains placeholder roots, block the write and report the specific vault id.
 
 ## Boundaries
 

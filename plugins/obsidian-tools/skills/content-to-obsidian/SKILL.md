@@ -50,7 +50,15 @@ Use this user-local runtime path as the authoritative config:
 ~/.obsidian-tools/vaults.json
 ```
 
-If the file is missing, copy `vaults.json.example` from the installed skill and edit `root` values before writing. If legacy skills still read `~/.codex/skills/content-to-obsidian/vaults.json` or `~/.codex/skills/tweet-to-obsidian/vaults.json`, keep those paths as symlinks to the authoritative file rather than duplicating mutable config.
+Before every write, run the bundled config checker from the installed skill directory:
+
+```bash
+python3 scripts/check_vault_config.py --prompt "<ORIGINAL_USER_PROMPT>" --pretty
+```
+
+The checker automatically creates `~/.obsidian-tools/vaults.json` from `vaults.json.example` when it is missing, then returns JSON. If it exits non-zero or returns `"ok": false`, stop before writing and tell the user to edit the reported `config_path`.
+
+If legacy skills still read `~/.codex/skills/content-to-obsidian/vaults.json` or `~/.codex/skills/tweet-to-obsidian/vaults.json`, keep those paths as symlinks to the authoritative file rather than duplicating mutable config.
 
 Format:
 
@@ -76,9 +84,10 @@ Format:
 ## Workflow
 
 1. Select vault from `vaults.json`.
+   - Run `scripts/check_vault_config.py --prompt "<ORIGINAL_USER_PROMPT>" --pretty`.
    - Match prompt against `vaults[].triggers`.
    - If none match, use `default`.
-   - Refuse writes when `root` is missing or still contains `/Users/CHANGE_ME/`.
+   - Refuse writes when the checker reports `needs_config`, including missing config, invalid JSON, placeholder roots, nonexistent roots, or roots that are not directories.
    - Do not write outside the selected `root`.
 2. Normalize display fields.
    - Use `title`, or generate a concise Chinese title from `text`.
@@ -101,6 +110,27 @@ Format:
    - Selected vault/mode.
    - Media count and failed media count.
    - One- or two-sentence content summary.
+
+## Missing Vault Config Behavior
+
+When the checker blocks the write:
+
+- If `created_config` is `true`, say that `~/.obsidian-tools/vaults.json` was created.
+- Show the blocked vault id and `config_path`.
+- Show any `suggested_existing_paths` as suggestions only; do not write them into config unless the user confirms.
+- Do not write Markdown or assets until the checker passes.
+
+Example user-facing response:
+
+```text
+无法保存：Obsidian vault 还没有配置完成。
+
+我已创建:
+~/.obsidian-tools/vaults.json
+
+请把目标 vault 的 root 改成真实 Obsidian 路径后重试。当前阻断原因:
+Vault 'ai' has no real root path configured.
+```
 
 ## Markdown Rules
 

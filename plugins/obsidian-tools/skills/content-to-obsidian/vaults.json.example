@@ -8,9 +8,15 @@
       "mode": "karpathy"
     },
     {
-      "id": "work",
-      "triggers": ["保存到 工作", "vault=work", "工作知识库"],
-      "root": "/Users/CHANGE_ME/work-vault",
+      "id": "ai",
+      "triggers": ["保存到 AI", "保存到AI", "AI 知识库", "ai vault"],
+      "root": "/Users/CHANGE_ME/vault/ai",
+      "mode": "karpathy"
+    },
+    {
+      "id": "invest",
+      "triggers": ["保存到投资", "保存到 投资", "投资知识库", "invest vault"],
+      "root": "/Users/CHANGE_ME/vault/invest",
       "mode": "karpathy"
     }
   ]

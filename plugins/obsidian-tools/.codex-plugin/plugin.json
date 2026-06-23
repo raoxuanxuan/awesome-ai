@@ -1,6 +1,6 @@
 {
   "name": "obsidian-tools",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Route external content and save normalized content into Obsidian vaults for downstream knowledge workflows.",
   "author": {
     "name": "saberrao"
@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "Obsidian Tools",
     "shortDescription": "Route content into Obsidian.",
-    "longDescription": "Obsidian Tools provides a user-facing save-to-obsidian router plus a generic content-to-Obsidian ingestion layer. Source-specific fetchers such as twitter-fetch or china-content-fetcher produce normalized content JSON; content-to-obsidian selects a vault, creates Markdown, references media manifests, and writes vault files.",
+    "longDescription": "Obsidian Tools provides a user-facing save-to-obsidian router plus a generic content-to-Obsidian ingestion layer. Source-specific fetchers such as twitter-fetch or china-content-fetcher produce normalized content JSON; content-to-obsidian checks vault configuration, selects a vault, creates Markdown, references media manifests, and writes vault files.",
     "developerName": "saberrao",
     "category": "Productivity",
     "capabilities": ["Route source URLs", "Save normalized content", "Write Obsidian Markdown", "Route to vaults", "Use media manifests"],
