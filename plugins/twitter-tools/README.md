@@ -44,6 +44,8 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 | 场景 | 能力 |
 | --- | --- |
 | 用户监控 | 按 `~/.twitter-monitor/config.yaml` 检查配置用户的新 timeline |
+| 推文池旁路缓存 | 成功抓到的 timeline payload 会先写入 `tweet-pool`，供其他 workflow 复用 |
+| 标准输出 | `fetch_timeline.py` 直接输出 `twitter-fetch` 标准 envelope，不再输出旧版 `username/tweets/tweet_count` |
 | 新内容过滤 | 根据 state 去重，过滤低价值短推和纯转推 |
 | 内容补全 | 对候选内容调用 `twitter-fetch single --include-thread` |
 | Obsidian 归档 | 将 Content JSON 和 media manifest 交给 `content-to-obsidian` |
@@ -53,6 +55,8 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 - `twitter-fetch` / `twitter-media-fetch` 不写 Obsidian / vault / Markdown 文件。
 - `twitter-fetch` / `twitter-media-fetch` 不更新 `.state.json`、`.backfill_state.json` 或任何监控状态。
 - `tweet-pool` 不做统一业务队列，不做全局低质量过滤，不把一个 consumer 的 skip/save/ingest 状态共享给另一个 consumer。
+- `twitter-monitor` 写入 `tweet-pool` 只是 best-effort fetch cache；pool 不可用时 monitor 仍继续输出。
+- `twitter-monitor` 不再维护旧版 timeline JSON 输出；`--json` 参数只是 deprecated no-op。
 - `twitter-monitor` 不写 GitHub Pages，不做 KOL raw history backfill。
 - 不做推送通知。
 - `twitter-fetch` 不下载图片；需要下载媒体时使用 `twitter-media-fetch`。

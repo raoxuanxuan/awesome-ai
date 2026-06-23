@@ -14,6 +14,7 @@ It does not implement X/Twitter providers, download media internals, render Mark
 ```text
 twitter-monitor
   -> twitter-fetch timeline
+  -> tweet-pool ingest
   -> twitter-fetch single --include-thread
   -> twitter-media-fetch download
   -> content-to-obsidian
@@ -24,6 +25,7 @@ Layer ownership:
 | Layer | Owns | Does Not Own |
 | --- | --- | --- |
 | `twitter-fetch` | X/Twitter single, timeline, thread, replies, history JSON/JSONL | Markdown, media download, state, vault writes |
+| `tweet-pool` | Local normalized fetch cache keyed by tweet ID, author cache, timeline observations | Scheduling, quality decisions, Obsidian writes, KOL ingest decisions |
 | `twitter-media-fetch` | Download media from `twitter-fetch` JSON into caller-provided asset dir | Tweet fetching, Markdown, state |
 | `content-to-obsidian` | Vault config check, vault selection, Markdown rendering, Obsidian writes | Twitter fetching, monitor state |
 | `twitter-monitor` | Config, scheduling workflow, new-item detection, filtering, orchestration, monitor state | Provider parsing, media internals, Markdown templates, GitHub Pages |
@@ -59,6 +61,18 @@ Obsidian vault config belongs to `obsidian-tools`:
 ```
 
 If `~/.twitter-monitor/config.yaml` is missing, create it from `config.yaml.example` in this skill. Do not write mutable runtime state into the plugin directory.
+
+Tweet cache belongs to `tweet-pool`:
+
+```text
+/Users/saberrao/ai-workspace/content-creation/.tweet-pool/
+```
+
+The timeline wrapper writes successful `twitter-fetch timeline` payloads to
+`tweet-pool`, then outputs the same standard `twitter-fetch` envelope. It no longer
+emits the old `username/tweets/tweet_count` timeline shape. The cache is best-effort:
+a pool write failure prints a warning and does not fail the monitor run. Set
+`TWITTER_MONITOR_TWEET_POOL=0` to disable the side-cache temporarily.
 
 ## Config
 
@@ -103,32 +117,51 @@ sinks:
 python3 scripts/fetch_timeline.py --user karpathy --limit 20 --json --pretty
 ```
 
-3. Compare timeline IDs with state.
+`--json` is a deprecated no-op kept only so old command lines do not fail. Output is
+always the standard envelope:
+
+```json
+{
+  "ok": true,
+  "mode": "timeline",
+  "source": "syndication",
+  "fetched_at": "2026-06-23T08:00:00Z",
+  "input": {"user": "karpathy", "limit": 20},
+  "items": [],
+  "error": null
+}
+```
+
+3. Ingest successful timeline payloads into `tweet-pool`.
+   - This is only a normalized fetch cache.
+   - Do not read or write monitor `saved/skipped/failed` status in the pool.
+   - If `tweet-pool` is unavailable, log a warning and continue with monitor output.
+4. Compare timeline IDs with state.
    - Skip IDs already marked `saved` or `skipped`.
    - Preserve failed IDs for retry unless the failure is explicitly non-retryable.
-4. Apply low-value filters.
+5. Apply low-value filters.
    - Skip pure retweets when `include_retweets: false`.
    - Skip short non-quote posts with no URL when unlikely to carry durable value.
    - Do not skip short posts containing `http` or `t.co`; they may be X Articles or link posts.
    - If `mark_skipped_as_seen: true`, write skipped status to state with reason.
-5. Fetch complete content for each candidate.
+6. Fetch complete content for each candidate.
    - Use `twitter-fetch single --url <url> --include-thread --pretty`.
    - If this fails, mark retryable failure and do not write outputs.
-6. Download media when enabled.
+7. Download media when enabled.
    - Use `twitter-media-fetch download --input <twitter-json> --output-dir <asset-dir> --prefix <slug> --pretty`.
    - A partial media failure should not discard text content; report failed media.
-7. Map to Content JSON.
+8. Map to Content JSON.
    - Follow `content-to-obsidian/references/content-json.md`.
    - Preserve URL, author, created time, text, article body, thread sections, quote tweet references, stats, and media metadata.
-8. Save to Obsidian.
+9. Save to Obsidian.
    - Invoke `content-to-obsidian` with Content JSON, media manifest, and a prompt such as `保存到 AI: <url>`.
    - Let `content-to-obsidian` choose the vault and enforce `~/.obsidian-tools/vaults.json`.
    - Do not render Markdown directly in monitor.
-9. Update state only after outputs finish.
+10. Update state only after outputs finish.
    - `saved`: content was written to Obsidian.
    - `skipped`: low-value content intentionally ignored.
    - `failed`: retryable failure, with error message.
-10. Print a concise run report.
+11. Print a concise run report.
 
 ## State Model
 
@@ -177,11 +210,22 @@ Monitor scripts resolve `twitter-fetch` in this order:
 
 If none is found, fail with an error asking the user to install `twitter-tools` or set `TWITTER_FETCH_BIN`.
 
+The timeline wrapper resolves `tweet-pool` in this order:
+
+1. `TWEET_POOL_BIN=/absolute/path/to/bin/tweet-pool`.
+2. `tweet-pool` on `PATH`.
+3. Installed plugin cache under `~/.codex/plugins/cache`, `~/.claude/plugins/cache`, or `~/.agents/plugins/cache`.
+4. Source checkout fallback: `~/ai-workspace/awesome-ai/plugins/twitter-tools/skills/tweet-pool/bin/tweet-pool`.
+
+If none is found, timeline output still works but prints a best-effort warning unless
+`TWITTER_MONITOR_TWEET_POOL=0` is set.
+
 ## Error Handling
 
 | Scenario | Behavior |
 | --- | --- |
 | User timeline fetch fails | Record user-level error and continue other users |
+| Tweet-pool ingest fails | Print warning; keep monitor output and state flow unchanged |
 | Single tweet fetch fails | Mark item `failed`; retry later |
 | Media download partially fails | Save text content and report failed media |
 | Obsidian config missing | Stop before writing; let `content-to-obsidian` create/check config |
