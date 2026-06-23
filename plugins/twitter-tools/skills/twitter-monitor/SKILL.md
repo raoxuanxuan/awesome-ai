@@ -32,16 +32,16 @@ Layer ownership:
 
 ## Runtime
 
-Default runtime:
+Authoritative runtime:
 
 ```text
-~/.twitter-monitor/
+/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/
 ```
 
 Runtime layout:
 
 ```text
-~/.twitter-monitor/
+/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/
 ├── config.yaml
 ├── .state.json
 ├── logs/
@@ -60,7 +60,7 @@ Obsidian vault config belongs to `obsidian-tools`:
 ~/.obsidian-tools/vaults.json
 ```
 
-If `~/.twitter-monitor/config.yaml` is missing, create it from `config.yaml.example` in this skill. Do not write mutable runtime state into the plugin directory.
+If `config.yaml` is missing, create it from `config.yaml.example` in this skill. Historical convenience paths should symlink back to the authoritative runtime. Do not write mutable runtime state into the plugin directory.
 
 Tweet cache belongs to `tweet-pool`:
 
@@ -81,12 +81,19 @@ Recommended config:
 ```yaml
 users:
   - username: "karpathy"
-    display_name: "Andrej Karpathy"
-    sinks: ["obsidian"]
+  - username: "Money_or_Life_X"
+  - username: "Franktradinglog"
+  - username: "qinbafrank"
+  - username: "labubu_trader"
+  - username: "omarsar0"
 
 topics:
   - name: "ClaudeCode"
     users: ["trq212", "bcherny", "amorriscode", "OmidMogasemi", "claudeai"]
+  - name: "invest"
+    users: ["Money_or_Life_X", "Franktradinglog", "qinbafrank", "labubu_trader"]
+  - name: "AI"
+    users: ["karpathy", "omarsar0"]
 
 settings:
   max_tweets_per_user: 20
@@ -105,8 +112,8 @@ sinks:
 ## Workflow
 
 1. Load config and state.
-   - Config: `~/.twitter-monitor/config.yaml`.
-   - State: `~/.twitter-monitor/.state.json`.
+   - Config: `/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/config.yaml`.
+   - State: `/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/.state.json`.
    - If state is missing, initialize an empty state.
    - If state is corrupt, stop and ask before overwriting.
 2. Fetch each user's recent timeline.
@@ -159,9 +166,21 @@ always the standard envelope:
    - Do not render Markdown directly in monitor.
 10. Update state only after outputs finish.
    - `saved`: content was written to Obsidian.
+   - `fetched`: content was fetched and written to `tweet-pool`, but no sink has persisted it yet.
    - `skipped`: low-value content intentionally ignored.
    - `failed`: retryable failure, with error message.
 11. Print a concise run report.
+
+Current runner:
+
+```bash
+twitter-monitor run --pretty
+```
+
+The current runner implements config loading, state loading, timeline fetch,
+tweet-pool ingest, state dedupe, low-value filtering, `single --include-thread`
+completion, and state updates. Completed candidates are marked `fetched`, not
+`saved`, because the Obsidian sink write is not implemented in the runner yet.
 
 ## State Model
 
@@ -176,11 +195,11 @@ Prefer state version 2:
       "last_checked": "2026-06-23T08:00:00Z",
       "items": {
         "123": {
-          "status": "saved",
+          "status": "fetched",
           "source_url": "https://x.com/karpathy/status/123",
-          "saved_at": "2026-06-23T08:01:00Z",
+          "updated_at": "2026-06-23T08:01:00Z",
           "outputs": {
-            "obsidian": "/Users/.../raw/articles/example.md"
+            "tweet_pool": true
           },
           "error": null
         }
@@ -192,12 +211,22 @@ Prefer state version 2:
 
 Legacy state with `processed_ids` may be read during migration, but new writes should use per-item status.
 
+Status values:
+
+| Status | Meaning |
+| --- | --- |
+| `fetched` | Full candidate content has been fetched and side-cached in `tweet-pool` |
+| `saved` | Future sink state: content was persisted to Obsidian |
+| `skipped` | Low-value content was intentionally ignored |
+| `failed` | Retryable failure, usually from single tweet fetch or sink failure |
+
 ## Explicit Non-Goals
 
 - Do not write GitHub Pages.
 - Do not depend on disabled `tweet-to-obsidian` or `x-tweet-fetcher`.
 - Do not import local `~/.codex/skills/twitter-fetch`; resolve and run the installed `twitter-fetch` runner.
 - Do not backfill KOL raw archives here. KOL history belongs in a future `kol-ingest` or `kol-twin` workflow.
+- Current runner does not write Obsidian yet; it marks completed candidates as `fetched`, not `saved`.
 
 ## Runner Resolution
 

@@ -43,12 +43,13 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 
 | 场景 | 能力 |
 | --- | --- |
-| 用户监控 | 按 `~/.twitter-monitor/config.yaml` 检查配置用户的新 timeline |
+| 用户监控 | 按 `/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/config.yaml` 检查配置用户的新 timeline |
+| Runner | `twitter-monitor run` 读取配置、去重、过滤、补全候选推文并更新 monitor state |
 | 推文池旁路缓存 | 成功抓到的 timeline payload 会先写入 `tweet-pool`，供其他 workflow 复用 |
 | 标准输出 | `fetch_timeline.py` 直接输出 `twitter-fetch` 标准 envelope，不再输出旧版 `username/tweets/tweet_count` |
 | 新内容过滤 | 根据 state 去重，过滤低价值短推和纯转推 |
 | 内容补全 | 对候选内容调用 `twitter-fetch single --include-thread` |
-| Obsidian 归档 | 将 Content JSON 和 media manifest 交给 `content-to-obsidian` |
+| Obsidian 归档 | 待接入；当前 runner 只标记 `fetched`，不会标记 `saved` |
 
 它不会做：
 
@@ -57,6 +58,7 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 - `tweet-pool` 不做统一业务队列，不做全局低质量过滤，不把一个 consumer 的 skip/save/ingest 状态共享给另一个 consumer。
 - `twitter-monitor` 写入 `tweet-pool` 只是 best-effort fetch cache；pool 不可用时 monitor 仍继续输出。
 - `twitter-monitor` 不再维护旧版 timeline JSON 输出；`--json` 参数只是 deprecated no-op。
+- `twitter-monitor run` 当前只完成 timeline 抓取、过滤、single 补全和 tweet-pool 缓存；还没有接入 Obsidian sink。
 - `twitter-monitor` 不写 GitHub Pages，不做 KOL raw history backfill。
 - 不做推送通知。
 - `twitter-fetch` 不下载图片；需要下载媒体时使用 `twitter-media-fetch`。
@@ -89,6 +91,7 @@ plugins/twitter-tools/
         └── references/
     └── twitter-monitor/
         ├── SKILL.md
+        ├── bin/twitter-monitor
         ├── config.yaml.example
         └── scripts/
 ```
@@ -157,14 +160,14 @@ claude plugin install twitter-tools@awesome-ai
 第一次使用 `twitter-monitor` 时，需要准备 monitor runtime：
 
 ```text
-~/.twitter-monitor/
+/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/
 ├── config.yaml
 ├── .state.json
 ├── logs/
 └── tmp/
 ```
 
-如果 `~/.twitter-monitor/config.yaml` 不存在，agent 应从已安装 skill 的 `config.yaml.example` 创建一份，再让用户确认监控账号和 sink 配置。monitor 的 X/Twitter cookie 仍然使用 `~/.twitter-fetch/.cookies.json`，Obsidian vault 仍然使用 `~/.obsidian-tools/vaults.json`。
+如果 `config.yaml` 不存在，agent 应从已安装 skill 的 `config.yaml.example` 创建一份，再让用户确认监控账号和 sink 配置。历史 convenience path 应 symlink 回这个权威 runtime，当前机器上的 `~/.twitter-monitor` 就是 symlink。monitor 的 X/Twitter cookie 仍然使用 `~/.twitter-fetch/.cookies.json`，Obsidian vault 仍然使用 `~/.obsidian-tools/vaults.json`。
 
 默认 cookie 路径：
 

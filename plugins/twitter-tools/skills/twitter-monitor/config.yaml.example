@@ -1,7 +1,17 @@
 users:
   - username: "karpathy"
-    display_name: "Andrej Karpathy"
-    sinks: ["obsidian"]
+  - username: "NuttyCLD"
+  - username: "Damnang2"
+  - username: "trq212"
+  - username: "bcherny"
+  - username: "amorriscode"
+  - username: "OmidMogasemi"
+  - username: "claudeai"
+  - username: "Money_or_Life_X"
+  - username: "Franktradinglog"
+  - username: "qinbafrank"
+  - username: "labubu_trader"
+  - username: "omarsar0"
 
 topics:
   - name: "ClaudeCode"
@@ -11,6 +21,16 @@ topics:
       - "amorriscode"
       - "OmidMogasemi"
       - "claudeai"
+  - name: "invest"
+    users:
+      - "Money_or_Life_X"
+      - "Franktradinglog"
+      - "qinbafrank"
+      - "labubu_trader"
+  - name: "AI"
+    users:
+      - "karpathy"
+      - "omarsar0"
 
 settings:
   translate_non_chinese: true
