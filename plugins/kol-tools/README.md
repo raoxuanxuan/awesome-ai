@@ -71,6 +71,7 @@ python3 plugins/kol-tools/scripts/kol_refresh.py --vault /Users/saberrao/vault/k
 python3 plugins/kol-tools/scripts/kol_delta.py TJ_Research --vault /Users/saberrao/vault/kol --cap 120
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode prompt-pack
 python3 plugins/kol-tools/scripts/kol_ask.py TJ_Research --vault /Users/saberrao/vault/kol --question "怎么看 NVDA 和 AI capex?" --mode context-pack
+python3 plugins/kol-tools/scripts/kol_debate.py --vault /Users/saberrao/vault/kol --kols TJ_Research,LinQingV --question "AI capex 是泡沫吗？" --rounds 2 --mode prompt-pack
 ```
 
 `kol_distill.py --mode prompt-pack` writes only a review workspace under:
@@ -89,6 +90,15 @@ workspace under:
 ```
 
 It does not call a model; use the generated `prompt.md` with the runner of choice.
+
+`kol_debate.py --mode prompt-pack` writes a multi-KOL debate workspace under:
+
+```text
+/Users/saberrao/vault/kol/_cross/debates/
+```
+
+It creates participant contexts, Round 1/2 prompts, and a synthesizer prompt, but
+does not execute the model or generate a final verdict.
 
 ## Privacy
 
