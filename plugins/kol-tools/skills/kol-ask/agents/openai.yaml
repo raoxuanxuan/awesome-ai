@@ -1,2 +1,4 @@
-name: kol-ask
-description: Ask one private KOL digital twin using archived KOL wiki evidence.
+interface:
+  display_name: "KOL Ask"
+  short_description: "Ask one private KOL digital twin using archived KOL wiki evidence."
+  default_prompt: "Answer a question through one KOL twin using archived evidence and optional invest wiki context."

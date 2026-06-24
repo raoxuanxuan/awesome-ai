@@ -1,6 +1,6 @@
 ---
 name: kol-ask
-description: Answer a question through one private KOL digital twin using the KOL archive, selected source pages, and optional invest wiki context. Use for "问问 <KOL>", "KOL 会怎么看", or single-KOL decision-support questions.
+description: Answer a question through one private KOL digital twin using the KOL archive, selected source pages, and optional invest wiki context. Use for asking a named KOL perspective, KOL 会怎么看, or single-KOL decision-support questions.
 ---
 
 # KOL Ask

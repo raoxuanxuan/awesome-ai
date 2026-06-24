@@ -1,2 +1,4 @@
-name: kol-distill
-description: Distill cleaned KOL evidence into KOL twin wiki artifacts.
+interface:
+  display_name: "KOL Distill"
+  short_description: "Distill cleaned KOL evidence into KOL twin wiki artifacts."
+  default_prompt: "Create, apply, validate, or commit a KOL distillation workspace according to risk policy."

@@ -1,2 +1,4 @@
-name: kol-refresh
-description: Refresh private KOL raw archives through twitter-fetch.
+interface:
+  display_name: "KOL Refresh"
+  short_description: "Refresh private KOL raw archives through twitter-fetch."
+  default_prompt: "Refresh a KOL archive through twitter-fetch and tweet-pool without bypassing the KOL vault boundary."

@@ -1,2 +1,4 @@
-name: kol-debate
-description: Run or prepare multi-KOL debates over private KOL twin archives.
+interface:
+  display_name: "KOL Debate"
+  short_description: "Run or prepare multi-KOL debates over private KOL twin archives."
+  default_prompt: "Prepare or run a multi-KOL debate using archived KOL evidence and safety boundaries."
