@@ -11,10 +11,11 @@ Use this skill for multi-KOL discussion over the KOL wiki archive.
 
 - Reads KOL wiki pages for multiple handles.
 - `prompt-pack` mode writes debate workspaces under `/Users/saberrao/vault/kol/_cross/debates/`.
-- Current productized mode does not call a model or generate a final verdict by itself.
+- `run` mode executes prompts through a user-supplied stdin/stdout runner command and writes turns plus verdict artifacts.
 - Does not fetch X/Twitter.
 - Does not update raw or distilled KOL wiki pages.
 - Does not hard-code one model provider as the only runtime.
+- Does not store the full runner command in `manifest.json`, to reduce credential leakage risk.
 
 ## Debate Shape
 
@@ -33,7 +34,17 @@ python3 plugins/kol-tools/scripts/kol_debate.py \
   --mode prompt-pack
 ```
 
-Use the generated prompts with the model/runtime of choice, then save outputs into
-the generated `turns/` directory.
+Run with any CLI that reads prompt text from stdin and writes the answer to stdout:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_debate.py \
+  --vault /Users/saberrao/vault/kol \
+  --kols TJ_Research,LinQingV \
+  --question "AI capex 是泡沫吗？" \
+  --rounds 2 \
+  --mode run \
+  --pack-id <pack-id> \
+  --runner-command "<stdin-stdout-runner>"
+```
 
 See `references/runtime.md`.

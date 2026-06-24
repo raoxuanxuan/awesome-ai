@@ -107,6 +107,120 @@ class KolDebateTests(unittest.TestCase):
             self.assertEqual(result["status"], "error")
             self.assertIn("至少 2 个", result["error"])
 
+    def test_run_mode_executes_prompts_with_runner_command(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            vault = self.build_vault(root)
+            runner = root / "fake_runner.py"
+            runner.write_text(
+                """import json
+import sys
+
+prompt = sys.stdin.read()
+if "Debate Synthesizer Prompt" in prompt:
+    print(json.dumps({
+        "question": "AI capex 是泡沫吗？",
+        "participants": ["TJ_Research", "LinQingV"],
+        "rounds_held": 2,
+        "立场摘要": [],
+        "共识点": ["都需要证据边界"],
+        "分歧点": [],
+        "支持比例": {"人头": {}, "信心度加权": {}},
+        "辩论质量": "充分",
+        "盲点提示": "样本为测试桩",
+        "推荐行动": "继续观察"
+    }, ensure_ascii=False))
+else:
+    print("明确立场：中立\\n\\n```meta\\nconfidence: 中\\nin_comfort_zone: yes\\nprimary_sources: []\\nwikilinks_used: []\\ncaveats: 测试桩\\n```")
+""",
+                encoding="utf-8",
+            )
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "--vault",
+                    str(vault),
+                    "--kols",
+                    "TJ_Research,LinQingV",
+                    "--question",
+                    "AI capex 是泡沫吗？",
+                    "--rounds",
+                    "2",
+                    "--mode",
+                    "run",
+                    "--pack-id",
+                    "debate-run",
+                    "--runner-command",
+                    f"{sys.executable} {runner}",
+                ])
+
+            self.assertEqual(rc, 0)
+            result = json.loads(out.getvalue())
+            self.assertEqual(result["status"], "run_complete")
+            workspace = Path(result["workspace"])
+            self.assertTrue((workspace / "turns" / "r1-TJ_Research.md").exists())
+            self.assertTrue((workspace / "turns" / "r1-LinQingV.md").exists())
+            self.assertTrue((workspace / "turns" / "r2-TJ_Research.md").exists())
+            self.assertTrue((workspace / "turns" / "r2-LinQingV.md").exists())
+            self.assertTrue((workspace / "verdict.json").exists())
+            verdict = json.loads((workspace / "verdict.json").read_text(encoding="utf-8"))
+            self.assertEqual(verdict["辩论质量"], "充分")
+            manifest = json.loads((workspace / "manifest.json").read_text(encoding="utf-8"))
+            self.assertTrue(manifest["executes_model"])
+            self.assertEqual(manifest["run_status"], "complete")
+            self.assertNotIn("argv", manifest["runner"])
+            self.assertEqual(manifest["runner"]["executable"], sys.executable)
+
+    def test_run_mode_refuses_pack_id_mismatch(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            vault = self.build_vault(root)
+            runner = root / "fake_runner.py"
+            runner.write_text("print('ok')\n", encoding="utf-8")
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "--vault",
+                    str(vault),
+                    "--kols",
+                    "TJ_Research,LinQingV",
+                    "--question",
+                    "AI capex 是泡沫吗？",
+                    "--rounds",
+                    "2",
+                    "--mode",
+                    "prompt-pack",
+                    "--pack-id",
+                    "debate-run",
+                ])
+            self.assertEqual(rc, 0)
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "--vault",
+                    str(vault),
+                    "--kols",
+                    "TJ_Research,LinQingV",
+                    "--question",
+                    "不同问题",
+                    "--rounds",
+                    "2",
+                    "--mode",
+                    "run",
+                    "--pack-id",
+                    "debate-run",
+                    "--runner-command",
+                    f"{sys.executable} {runner}",
+                ])
+
+            self.assertEqual(rc, 2)
+            result = json.loads(out.getvalue())
+            self.assertEqual(result["status"], "error")
+            self.assertIn("different question", result["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

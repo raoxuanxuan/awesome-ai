@@ -75,6 +75,7 @@ python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/sabe
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode commit --pack-id <pack-id>
 python3 plugins/kol-tools/scripts/kol_ask.py TJ_Research --vault /Users/saberrao/vault/kol --question "怎么看 NVDA 和 AI capex?" --mode context-pack
 python3 plugins/kol-tools/scripts/kol_debate.py --vault /Users/saberrao/vault/kol --kols TJ_Research,LinQingV --question "AI capex 是泡沫吗？" --rounds 2 --mode prompt-pack
+python3 plugins/kol-tools/scripts/kol_debate.py --vault /Users/saberrao/vault/kol --kols TJ_Research,LinQingV --question "AI capex 是泡沫吗？" --rounds 2 --mode run --pack-id <pack-id> --runner-command "<stdin-stdout-runner>"
 ```
 
 `kol_distill.py --mode prompt-pack` writes only a review workspace under:
@@ -118,6 +119,12 @@ It does not call a model; use the generated `prompt.md` with the runner of choic
 
 It creates participant contexts, Round 1/2 prompts, and a synthesizer prompt, but
 does not execute the model or generate a final verdict.
+
+`kol_debate.py --mode run` uses the same workspace shape, then executes each
+prompt through `--runner-command`. The runner must read prompt text from stdin
+and write the answer to stdout. Outputs are saved to `turns/`, `verdict.raw.md`,
+`verdict.json`, and `verdict.md`. The manifest stores only redacted runner
+metadata, not the full command string.
 
 ## Privacy
 

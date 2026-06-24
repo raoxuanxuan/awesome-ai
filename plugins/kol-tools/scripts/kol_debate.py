@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,12 +24,22 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def read_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def parse_kols(value: str) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
 def debate_root(vault: Path) -> Path:
     return vault / "_cross" / "debates"
+
+
+def workspace_path(vault: Path, pack_id: str) -> Path:
+    if not pack_id:
+        raise RuntimeError("--pack-id is required when loading an existing debate workspace")
+    return debate_root(vault) / pack_id
 
 
 def safety_rules(handle: str) -> str:
@@ -189,7 +201,19 @@ How to use:
 2. If `rounds >= 2`, run each `prompts/r2-<handle>.md` after all Round 1 outputs exist.
 3. Run `prompts/synthesize.md` after all turns exist and save JSON to `verdict.json`.
 
-This prompt pack does not execute a model and does not create a verdict by itself.
+To automate this with any CLI that reads prompt text from stdin and writes the
+answer to stdout, run:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_debate.py \\
+  --vault /Users/saberrao/vault/kol \\
+  --kols {",".join(handles)} \\
+  --question "{question}" \\
+  --rounds {rounds} \\
+  --mode run \\
+  --pack-id <pack-id> \\
+  --runner-command "<your-runner-command>"
+```
 """
 
 
@@ -250,14 +274,172 @@ def write_prompt_pack(vault: Path, names: list[str], question: str, rounds: int,
     return workspace, handles
 
 
+def parse_runner_command(value: str) -> list[str]:
+    argv = shlex.split(value)
+    if not argv:
+        raise RuntimeError("--runner-command cannot be empty")
+    return argv
+
+
+def runner_metadata(runner_argv: list[str]) -> dict[str, Any]:
+    return {
+        "executable": runner_argv[0],
+        "arg_count": len(runner_argv),
+    }
+
+
+def run_prompt(runner_argv: list[str], prompt_path: Path, output_path: Path, timeout: int) -> dict[str, Any]:
+    prompt = prompt_path.read_text(encoding="utf-8")
+    started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    completed = subprocess.run(
+        runner_argv,
+        input=prompt,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(completed.stdout, encoding="utf-8")
+    if completed.stderr:
+        (output_path.with_suffix(output_path.suffix + ".stderr")).write_text(completed.stderr, encoding="utf-8")
+    return {
+        "prompt": str(prompt_path),
+        "output": str(output_path),
+        "returncode": completed.returncode,
+        "started_at": started,
+        "completed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "stderr": str(output_path.with_suffix(output_path.suffix + ".stderr")) if completed.stderr else "",
+    }
+
+
+def extract_json(text: str) -> Any:
+    stripped = text.strip()
+    if not stripped:
+        raise RuntimeError("runner produced empty verdict")
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+    fence = "```json"
+    if fence in stripped:
+        start = stripped.index(fence) + len(fence)
+        end = stripped.find("```", start)
+        if end != -1:
+            return json.loads(stripped[start:end].strip())
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return json.loads(stripped[start : end + 1])
+    raise RuntimeError("runner verdict is not valid JSON")
+
+
+def load_workspace(vault: Path, pack_id: str) -> tuple[Path, dict[str, Any]]:
+    workspace = workspace_path(vault, pack_id)
+    manifest_path = workspace / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"missing debate manifest: {manifest_path}")
+    return workspace, read_json(manifest_path)
+
+
+def ensure_prompt_pack(vault: Path, names: list[str], question: str, rounds: int, pack_id: str) -> tuple[Path, dict[str, Any]]:
+    workspace = workspace_path(vault, pack_id)
+    if (workspace / "manifest.json").exists():
+        workspace, manifest = load_workspace(vault, pack_id)
+        expected_handles = list(dict.fromkeys(resolve_handle(vault, name)["handle"] for name in names))
+        if manifest.get("question") != question:
+            raise RuntimeError(f"existing pack-id has different question: {pack_id}")
+        if manifest.get("handles") != expected_handles:
+            raise RuntimeError(f"existing pack-id has different participants: {pack_id}")
+        if int(manifest.get("rounds") or 0) != rounds:
+            raise RuntimeError(f"existing pack-id has different rounds: {pack_id}")
+        return workspace, manifest
+    write_prompt_pack(vault, names, question, rounds, pack_id)
+    return load_workspace(vault, pack_id)
+
+
+def update_manifest(workspace: Path, updates: dict[str, Any]) -> dict[str, Any]:
+    manifest_path = workspace / "manifest.json"
+    manifest = read_json(manifest_path)
+    manifest.update(updates)
+    write_json(manifest_path, manifest)
+    return manifest
+
+
+def run_debate_workspace(
+    vault: Path,
+    names: list[str],
+    question: str,
+    rounds: int,
+    pack_id: str,
+    runner_command: str,
+    timeout: int,
+) -> tuple[int, dict[str, Any]]:
+    if not pack_id:
+        pack_id = f"debate-{now_compact()}"
+    workspace, manifest = ensure_prompt_pack(vault, names, question, rounds, pack_id)
+    runner_argv = parse_runner_command(runner_command)
+    prompts = manifest.get("prompts", {})
+    handles = list(manifest.get("handles") or [])
+    turns_dir = workspace / "turns"
+    run_steps: list[dict[str, Any]] = []
+
+    for handle in handles:
+        prompt = Path(prompts["round1"][handles.index(handle)])
+        run_steps.append(run_prompt(runner_argv, prompt, turns_dir / f"r1-{handle}.md", timeout))
+    if int(manifest.get("rounds") or rounds) >= 2:
+        round2_prompts = list(prompts.get("round2") or [])
+        for handle, prompt in zip(handles, round2_prompts):
+            run_steps.append(run_prompt(runner_argv, Path(prompt), turns_dir / f"r2-{handle}.md", timeout))
+
+    verdict_raw = workspace / "verdict.raw.md"
+    run_steps.append(run_prompt(runner_argv, Path(prompts["synthesize"]), verdict_raw, timeout))
+    failed = [step for step in run_steps if step["returncode"] != 0]
+    if failed:
+        update_manifest(workspace, {"run_status": "failed", "executes_model": True, "run_steps": run_steps})
+        return 2, {"status": "run_failed", "workspace": str(workspace), "failed_steps": failed, "steps": run_steps}
+
+    verdict = extract_json(verdict_raw.read_text(encoding="utf-8"))
+    write_json(workspace / "verdict.json", verdict)
+    (workspace / "verdict.md").write_text(
+        "# KOL Debate Verdict\n\n"
+        f"Question: {manifest.get('question')}\n\n"
+        "```json\n"
+        + json.dumps(verdict, ensure_ascii=False, indent=2)
+        + "\n```\n",
+        encoding="utf-8",
+    )
+    update_manifest(
+        workspace,
+        {
+            "run_status": "complete",
+            "executed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "executes_model": True,
+            "runner": runner_metadata(runner_argv),
+            "run_steps": run_steps,
+            "verdict": str(workspace / "verdict.json"),
+        },
+    )
+    return 0, {
+        "status": "run_complete",
+        "workspace": str(workspace),
+        "handles": handles,
+        "rounds": manifest.get("rounds"),
+        "turns": [step["output"] for step in run_steps[:-1]],
+        "verdict": str(workspace / "verdict.json"),
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Prepare multi-KOL debate prompt packs")
     parser.add_argument("--vault", type=Path, default=DEFAULT_VAULT)
     parser.add_argument("--kols", required=True, help="Comma-separated handles or aliases")
     parser.add_argument("--question", "--q", dest="question", required=True)
     parser.add_argument("--rounds", type=int, default=2)
-    parser.add_argument("--mode", choices=("prompt-pack",), default="prompt-pack")
+    parser.add_argument("--mode", choices=("prompt-pack", "run"), default="prompt-pack")
     parser.add_argument("--pack-id", default="")
+    parser.add_argument("--runner-command", default="", help="external command that reads prompt from stdin and writes answer to stdout")
+    parser.add_argument("--timeout", type=int, default=600)
     return parser
 
 
@@ -270,6 +452,20 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("至少 2 个 KOL 才能辩论")
         rounds = max(1, args.rounds)
         pack_id = args.pack_id or f"debate-{now_compact()}"
+        if args.mode == "run":
+            if not args.runner_command:
+                raise RuntimeError("--runner-command is required for --mode run")
+            rc, result = run_debate_workspace(
+                args.vault,
+                names,
+                args.question,
+                rounds,
+                pack_id,
+                args.runner_command,
+                args.timeout,
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return rc
         workspace, handles = write_prompt_pack(args.vault, names, args.question, rounds, pack_id)
         print(
             json.dumps(
