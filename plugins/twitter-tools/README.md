@@ -43,10 +43,11 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 
 | 场景 | 能力 |
 | --- | --- |
-| 用户监控 | 按 `/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/config.yaml` 检查配置用户的新 timeline |
+| 用户监控 | 按 `/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/config.yaml` 扫描配置用户的时间窗口内新内容 |
 | Runner | `twitter-monitor run` 读取配置、去重、过滤、补全候选推文并更新 monitor state |
 | 推文池旁路缓存 | 成功抓到的 timeline payload 会先写入 `tweet-pool`，供其他 workflow 复用 |
 | 标准输出 | `fetch_timeline.py` 直接输出 `twitter-fetch` 标准 envelope，不再输出旧版 `username/tweets/tweet_count` |
+| 时间窗口 | 每轮按 `lookback_minutes` 过滤 timeline item，`max_scan_per_user` 只是扫描上限 |
 | 新内容过滤 | 根据 state 去重，过滤低价值短推和纯转推 |
 | 内容补全 | 对候选内容调用 `twitter-fetch single --include-thread` |
 | Obsidian 归档 | 待接入；当前 runner 只标记 `fetched`，不会标记 `saved` |

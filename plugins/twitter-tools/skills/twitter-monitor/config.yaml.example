@@ -34,7 +34,10 @@ topics:
 
 settings:
   translate_non_chinese: true
-  max_tweets_per_user: 20
+  interval_minutes: 60
+  lookback_minutes: 70
+  first_run_lookback_minutes: 60
+  max_scan_per_user: 50
   include_replies: false
   include_retweets: false
   expand_thread: true

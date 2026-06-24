@@ -96,7 +96,10 @@ topics:
     users: ["karpathy", "omarsar0"]
 
 settings:
-  max_tweets_per_user: 20
+  interval_minutes: 60
+  lookback_minutes: 70
+  first_run_lookback_minutes: 60
+  max_scan_per_user: 50
   include_replies: false
   include_retweets: false
   expand_thread: true
@@ -116,8 +119,12 @@ sinks:
    - State: `/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/.state.json`.
    - If state is missing, initialize an empty state.
    - If state is corrupt, stop and ask before overwriting.
-2. Fetch each user's recent timeline.
-   - Use `twitter-fetch timeline --user <username> --limit <N> --pretty`.
+2. Compute the monitor window.
+   - `window_start = now - first_run_lookback_minutes` when a user has no `last_success_at`.
+   - Otherwise `window_start = now - lookback_minutes`.
+   - `interval_minutes` documents the intended schedule; `lookback_minutes` should be slightly larger to tolerate delayed hourly jobs.
+3. Fetch each user's recent timeline.
+   - Use `twitter-fetch timeline --user <username> --limit <max_scan_per_user> --pretty`.
    - Compatibility wrapper:
 
 ```bash
@@ -139,37 +146,41 @@ always the standard envelope:
 }
 ```
 
-3. Ingest successful timeline payloads into `tweet-pool`.
+4. Ingest successful timeline payloads into `tweet-pool`.
    - This is only a normalized fetch cache.
    - Do not read or write monitor `saved/skipped/failed` status in the pool.
    - If `tweet-pool` is unavailable, log a warning and continue with monitor output.
-4. Compare timeline IDs with state.
+5. Keep only timeline items in the current monitor window.
+   - Drop items whose `created_at` is older than `window_start`.
+   - Items without parseable `created_at` stay eligible so provider schema drift is visible instead of silently dropping content.
+6. Compare timeline IDs with state.
    - Skip IDs already marked `saved` or `skipped`.
    - Preserve failed IDs for retry unless the failure is explicitly non-retryable.
-5. Apply low-value filters.
+7. Apply low-value filters.
    - Skip pure retweets when `include_retweets: false`.
    - Skip short non-quote posts with no URL when unlikely to carry durable value.
    - Do not skip short posts containing `http` or `t.co`; they may be X Articles or link posts.
    - If `mark_skipped_as_seen: true`, write skipped status to state with reason.
-6. Fetch complete content for each candidate.
+8. Fetch complete content for each candidate.
    - Use `twitter-fetch single --url <url> --include-thread --pretty`.
    - If this fails, mark retryable failure and do not write outputs.
-7. Download media when enabled.
+9. Download media when enabled.
    - Use `twitter-media-fetch download --input <twitter-json> --output-dir <asset-dir> --prefix <slug> --pretty`.
    - A partial media failure should not discard text content; report failed media.
-8. Map to Content JSON.
+10. Map to Content JSON.
    - Follow `content-to-obsidian/references/content-json.md`.
    - Preserve URL, author, created time, text, article body, thread sections, quote tweet references, stats, and media metadata.
-9. Save to Obsidian.
+11. Save to Obsidian.
    - Invoke `content-to-obsidian` with Content JSON, media manifest, and a prompt such as `保存到 AI: <url>`.
    - Let `content-to-obsidian` choose the vault and enforce `~/.obsidian-tools/vaults.json`.
    - Do not render Markdown directly in monitor.
-10. Update state only after outputs finish.
+12. Update state only after outputs finish.
    - `saved`: content was written to Obsidian.
    - `fetched`: content was fetched and written to `tweet-pool`, but no sink has persisted it yet.
    - `skipped`: low-value content intentionally ignored.
    - `failed`: retryable failure, with error message.
-11. Print a concise run report.
+   - Update user-level `last_success_at` only after the user run completes.
+13. Print a concise run report.
 
 Current runner:
 
@@ -177,27 +188,31 @@ Current runner:
 twitter-monitor run --pretty
 ```
 
-The current runner implements config loading, state loading, timeline fetch,
-tweet-pool ingest, state dedupe, low-value filtering, `single --include-thread`
-completion, and state updates. Completed candidates are marked `fetched`, not
-`saved`, because the Obsidian sink write is not implemented in the runner yet.
+The current runner implements config loading, state loading, hourly window
+calculation, timeline scan with `max_scan_per_user`, tweet-pool ingest, state
+dedupe, low-value filtering, `single --include-thread` completion, and state
+updates. Completed candidates are marked `fetched`, not `saved`, because the
+Obsidian sink write is not implemented in the runner yet.
 
 ## State Model
 
-Prefer state version 2:
+Prefer state version 3:
 
 ```json
 {
-  "version": 2,
-  "last_run": "2026-06-23T08:00:00Z",
+  "version": 3,
+  "last_run": "2026-06-24T10:00:00Z",
   "users": {
     "karpathy": {
-      "last_checked": "2026-06-23T08:00:00Z",
+      "last_checked": "2026-06-24T10:00:00Z",
+      "last_success_at": "2026-06-24T10:00:00Z",
+      "window_start": "2026-06-24T09:00:00Z",
       "items": {
         "123": {
           "status": "fetched",
           "source_url": "https://x.com/karpathy/status/123",
-          "updated_at": "2026-06-23T08:01:00Z",
+          "created_at": "2026-06-24T09:30:00Z",
+          "updated_at": "2026-06-24T10:01:00Z",
           "outputs": {
             "tweet_pool": true
           },

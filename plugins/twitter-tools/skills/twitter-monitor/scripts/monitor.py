@@ -7,7 +7,7 @@ import argparse
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,10 +18,40 @@ from twitter_fetch_runner import run_twitter_fetch
 DEFAULT_RUNTIME = Path("/Users/saberrao/ai-workspace/content-creation/.twitter-monitor")
 SEEN_STATUSES = {"saved", "skipped", "fetched"}
 SHORT_TEXT_LIMIT = 40
+DEFAULT_INTERVAL_MINUTES = 60
+DEFAULT_LOOKBACK_MINUTES = 70
+DEFAULT_FIRST_RUN_LOOKBACK_MINUTES = 60
+DEFAULT_MAX_SCAN_PER_USER = 50
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_iso_datetime(value: str) -> datetime | None:
+    if not value:
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def format_iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def current_time() -> datetime:
+    parsed = parse_iso_datetime(now_iso())
+    if parsed is None:
+        return datetime.now(timezone.utc)
+    return parsed
 
 
 def runtime_dir(env: dict[str, str] | None = None) -> Path:
@@ -117,11 +147,11 @@ def configured_users(config: dict[str, Any]) -> list[str]:
 
 def load_state(path: Path) -> dict[str, Any]:
     if not path.exists():
-        return {"version": 2, "users": {}}
+        return {"version": 3, "users": {}}
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError(f"state must be an object: {path}")
-    data.setdefault("version", 2)
+    data["version"] = 3
     data.setdefault("users", {})
     return data
 
@@ -141,6 +171,45 @@ def user_state(state: dict[str, Any], username: str) -> dict[str, Any]:
 def item_status(user_entry: dict[str, Any], tweet_id: str) -> str:
     item = user_entry.get("items", {}).get(tweet_id, {})
     return str(item.get("status", ""))
+
+
+def setting_minutes(settings: dict[str, Any], key: str, default: int) -> int:
+    try:
+        value = int(settings.get(key) or default)
+    except (TypeError, ValueError):
+        value = default
+    return max(value, 1)
+
+
+def scan_limit(settings: dict[str, Any]) -> int:
+    try:
+        value = int(settings.get("max_scan_per_user") or DEFAULT_MAX_SCAN_PER_USER)
+    except (TypeError, ValueError):
+        value = DEFAULT_MAX_SCAN_PER_USER
+    return max(value, 1)
+
+
+def compute_window_start(user_entry: dict[str, Any], settings: dict[str, Any], now: datetime) -> datetime:
+    if user_entry.get("last_success_at"):
+        minutes = setting_minutes(settings, "lookback_minutes", DEFAULT_LOOKBACK_MINUTES)
+    else:
+        minutes = setting_minutes(
+            settings,
+            "first_run_lookback_minutes",
+            DEFAULT_FIRST_RUN_LOOKBACK_MINUTES,
+        )
+    return now - timedelta(minutes=minutes)
+
+
+def item_created_at(item: dict[str, Any]) -> datetime | None:
+    return parse_iso_datetime(str(item.get("created_at") or ""))
+
+
+def in_window(item: dict[str, Any], window_start: datetime) -> bool:
+    created = item_created_at(item)
+    if created is None:
+        return True
+    return created >= window_start
 
 
 def has_url(text: str) -> bool:
@@ -171,6 +240,7 @@ def mark_item(
     status: str,
     *,
     source_url: str = "",
+    created_at: str = "",
     reason: str = "",
     error: str = "",
     outputs: dict[str, Any] | None = None,
@@ -180,6 +250,8 @@ def mark_item(
         "source_url": source_url,
         "updated_at": now_iso(),
     }
+    if created_at:
+        item["created_at"] = created_at
     if reason:
         item["reason"] = reason
     if error:
@@ -198,27 +270,43 @@ def fetch_single(item: dict[str, Any], expand_thread: bool) -> dict[str, Any]:
 
 def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
     settings = config.get("settings") or {}
-    limit = int(settings.get("max_tweets_per_user") or 20)
+    limit = scan_limit(settings)
     expand_thread = bool(settings.get("expand_thread", True))
     mark_skipped = bool(settings.get("mark_skipped_as_seen", True))
     user_entry = user_state(state, username)
+    now = current_time()
+    window_start = compute_window_start(user_entry, settings, now)
     report = {
         "timeline_count": 0,
+        "within_window": 0,
+        "outside_window": 0,
         "already_seen": 0,
         "skipped": 0,
         "fetched": 0,
         "failed": 0,
+        "interval_minutes": setting_minutes(
+            settings,
+            "interval_minutes",
+            DEFAULT_INTERVAL_MINUTES,
+        ),
+        "window_start": format_iso(window_start),
+        "scan_limit": limit,
     }
     timeline = run_twitter_fetch(["timeline", "--user", username, "--limit", str(limit)])
     maybe_ingest_tweet_pool(timeline)
     items = timeline.get("items") or []
     report["timeline_count"] = len(items)
-    user_entry["last_checked"] = now_iso()
+    user_entry["last_checked"] = format_iso(now)
+    user_entry["window_start"] = format_iso(window_start)
 
     for item in items:
         tweet_id = str(item.get("id") or "")
         if not tweet_id:
             continue
+        if not in_window(item, window_start):
+            report["outside_window"] += 1
+            continue
+        report["within_window"] += 1
         if item_status(user_entry, tweet_id) in SEEN_STATUSES:
             report["already_seen"] += 1
             continue
@@ -231,6 +319,7 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
                     tweet_id,
                     "skipped",
                     source_url=str(item.get("url") or ""),
+                    created_at=str(item.get("created_at") or ""),
                     reason=reason,
                 )
             continue
@@ -244,6 +333,7 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
                 tweet_id,
                 "failed",
                 source_url=str(item.get("url") or ""),
+                created_at=str(item.get("created_at") or ""),
                 error=str(exc),
             )
             continue
@@ -253,8 +343,10 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
             tweet_id,
             "fetched",
             source_url=str(item.get("url") or ""),
+            created_at=str(item.get("created_at") or ""),
             outputs={"tweet_pool": True},
         )
+    user_entry["last_success_at"] = format_iso(now)
     return report
 
 
