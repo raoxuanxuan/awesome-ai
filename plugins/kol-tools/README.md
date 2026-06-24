@@ -59,6 +59,12 @@ Override for tests:
 export TWEET_POOL_RUNTIME=/tmp/.tweet-pool
 ```
 
+Historical raw archives can be migrated into tweet-pool with
+`kol_pool_backfill.py`. This is a one-time compatibility migration for old
+`vault/kol/<handle>/raw/tweets/*.md` files: it writes canonical tweet JSON and
+`consumers/kol-tools.json`, but does not rewrite raw Markdown, clean/index
+content, update wiki pages, or advance `.backfill_state.json`.
+
 ## Install
 
 From the `awesome-ai` repository root:
@@ -80,6 +86,8 @@ The plugin can create derived files such as `.clean_corpus.jsonl`, `.ingest_inde
 python3 plugins/kol-tools/skills/kol-clean/scripts/kol_clean.py TJ_Research --vault /Users/saberrao/vault/kol --dry-run
 python3 plugins/kol-tools/skills/kol-index/scripts/kol_index.py TJ_Research --vault /Users/saberrao/vault/kol --dry-run
 python3 plugins/kol-tools/scripts/registry_health.py --vault /Users/saberrao/vault/kol
+python3 plugins/kol-tools/scripts/kol_pool_backfill.py --vault /Users/saberrao/vault/kol --all --dry-run
+python3 plugins/kol-tools/scripts/kol_pool_backfill.py --vault /Users/saberrao/vault/kol --all
 python3 plugins/kol-tools/scripts/kol_refresh.py --vault /Users/saberrao/vault/kol --handle TJ_Research --incremental --max-pages 1 --dry-run
 python3 plugins/kol-tools/scripts/kol_delta.py TJ_Research --vault /Users/saberrao/vault/kol --cap 120
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode prompt-pack --policy balanced

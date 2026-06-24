@@ -18,6 +18,8 @@ Use this skill for KOL-specific raw archive maintenance.
 - Does not implement low-level X/Twitter GraphQL fetching.
 - Does not clean, summarize, distill, ask, or debate.
 - Does not write Obsidian vaults outside the KOL vault.
+- Historical raw archive migration is handled by `kol_pool_backfill.py`. It is
+  a one-time compatibility path into tweet-pool, not the normal refresh path.
 
 ## Script
 
@@ -25,6 +27,13 @@ Use the plugin-level script:
 
 ```bash
 python3 plugins/kol-tools/scripts/kol_refresh.py --handle <handle> --incremental --max-pages 1 --dry-run
+```
+
+For old raw archives that predate tweet-pool:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_pool_backfill.py --vault /Users/saberrao/vault/kol --all --dry-run
+python3 plugins/kol-tools/scripts/kol_pool_backfill.py --vault /Users/saberrao/vault/kol --all
 ```
 
 ## Workflow
