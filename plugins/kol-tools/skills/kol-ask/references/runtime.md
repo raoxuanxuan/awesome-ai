@@ -7,7 +7,7 @@ Context selection:
 3. Load relevant `wiki/methods/*.md`.
 4. Load matching `wiki/positions/*.md` and `wiki/sources/*.md`.
 5. Load relevant `timeline.md` sections when the question touches stance evolution.
-6. Load invest wiki pages only when the question is investment-related.
+6. Load invest wiki `_index.md` plus relevant pages only when the question is investment-related.
 
 Required ending:
 
@@ -26,6 +26,7 @@ Create a context pack:
 ```bash
 python3 plugins/kol-tools/scripts/kol_ask.py <handle-or-alias> \
   --vault /Users/saberrao/vault/kol \
+  --invest-wiki /Users/saberrao/vault/invest/wiki \
   --question "<question>" \
   --mode context-pack
 ```
@@ -39,11 +40,16 @@ vault/kol/<handle>/wiki/.ask_context_packs/<pack-id>/
 └── prompt.md
 ```
 
+`manifest.json` records both KOL wiki `selected_files` and optional
+`invest_files`. The prompt requires the answer to distinguish KOL archive
+evidence from invest wiki background knowledge.
+
 Run:
 
 ```bash
 python3 plugins/kol-tools/scripts/kol_ask.py <handle-or-alias> \
   --vault /Users/saberrao/vault/kol \
+  --invest-wiki /Users/saberrao/vault/invest/wiki \
   --question "<question>" \
   --mode run \
   --pack-id <pack-id> \

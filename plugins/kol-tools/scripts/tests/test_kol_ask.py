@@ -48,6 +48,15 @@ class KolAskTests(unittest.TestCase):
         (wiki / "timeline.md").write_text("# Timeline\nAI capex 尚未证伪。\n", encoding="utf-8")
         return vault
 
+    def build_invest_wiki(self, root: Path) -> Path:
+        wiki = root / "invest" / "wiki"
+        wiki.mkdir(parents=True)
+        (wiki / "_index.md").write_text("# Invest Index\n[[NVDA]]\n[[凯利公式]]\n", encoding="utf-8")
+        (wiki / "NVDA.md").write_text("# NVDA\n估值、AI capex、现金流和 GPU 需求。\n", encoding="utf-8")
+        (wiki / "凯利公式.md").write_text("# 凯利公式\n仓位需要结合胜率和赔率。\n", encoding="utf-8")
+        (wiki / "无关.md").write_text("# 无关\n餐厅记录。\n", encoding="utf-8")
+        return wiki
+
     def test_context_pack_resolves_alias_and_selects_relevant_files(self):
         with tempfile.TemporaryDirectory() as td:
             vault = self.build_vault(Path(td))
@@ -99,6 +108,39 @@ class KolAskTests(unittest.TestCase):
             result = json.loads(out.getvalue())
             self.assertEqual(result["status"], "error")
             self.assertIn("未注册", result["error"])
+
+    def test_context_pack_includes_relevant_invest_wiki_for_investment_question(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            vault = self.build_vault(root)
+            invest_wiki = self.build_invest_wiki(root)
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "TJ_Research",
+                    "--vault",
+                    str(vault),
+                    "--invest-wiki",
+                    str(invest_wiki),
+                    "--question",
+                    "怎么看 NVDA 估值和仓位？",
+                    "--mode",
+                    "context-pack",
+                    "--pack-id",
+                    "ask-invest",
+                ])
+
+            self.assertEqual(rc, 0)
+            result = json.loads(out.getvalue())
+            workspace = Path(result["workspace"])
+            manifest = json.loads((workspace / "manifest.json").read_text(encoding="utf-8"))
+            selected = "\n".join(item["relative"] for item in manifest["invest_files"])
+            self.assertIn("_index.md", selected)
+            self.assertIn("NVDA.md", selected)
+            context = (workspace / "context.md").read_text(encoding="utf-8")
+            self.assertIn("## Invest Wiki Context", context)
+            self.assertIn("AI capex", context)
 
     def test_run_mode_executes_prompt_with_runner_command(self):
         with tempfile.TemporaryDirectory() as td:

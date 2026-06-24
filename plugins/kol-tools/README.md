@@ -33,6 +33,19 @@ Override:
 export KOL_TOOLS_VAULT=/path/to/kol
 ```
 
+For investment-related ask questions, `kol_ask.py` can also include relevant
+pages from the local invest wiki:
+
+```text
+/Users/saberrao/vault/invest/wiki/
+```
+
+Override:
+
+```bash
+export KOL_TOOLS_INVEST_WIKI=/path/to/invest/wiki
+```
+
 KOL refresh also writes normalized tweet cache and consumer status through
 `twitter-tools/tweet-pool`. By default that runtime is:
 
@@ -110,7 +123,9 @@ workspace under:
 /Users/saberrao/vault/kol/<handle>/wiki/.ask_context_packs/
 ```
 
-`context-pack` does not call a model; use the generated `prompt.md` with the runner of choice.
+For investment-related questions, `context-pack` includes `_index.md` and
+relevant invest wiki pages when available. It does not call a model; use the
+generated `prompt.md` with the runner of choice.
 
 `kol_ask.py --mode run` uses the same workspace, executes `prompt.md` through
 `--runner-command`, and writes `answer.md`. The runner must read stdin and write

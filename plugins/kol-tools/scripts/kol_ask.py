@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -13,6 +14,38 @@ from pathlib import Path
 from typing import Any
 
 from kol_common import DEFAULT_VAULT, wiki_dir
+
+
+DEFAULT_INVEST_WIKI = Path(os.environ.get("KOL_TOOLS_INVEST_WIKI", "/Users/saberrao/vault/invest/wiki"))
+INVESTMENT_TERMS = {
+    "股票",
+    "估值",
+    "仓位",
+    "买入",
+    "卖出",
+    "持仓",
+    "财报",
+    "现金流",
+    "利润",
+    "营收",
+    "美股",
+    "港股",
+    "a股",
+    "基金",
+    "etf",
+    "期权",
+    "pe",
+    "pb",
+    "ps",
+    "roe",
+    "capex",
+    "nvda",
+    "tsla",
+    "googl",
+    "msft",
+    "aapl",
+    "meta",
+}
 
 
 def now_compact() -> str:
@@ -146,13 +179,49 @@ def collect_context_files(vault: Path, handle: str, question: str) -> list[dict[
     return deduped
 
 
-def render_context(handle: str, question: str, files: list[dict[str, str]]) -> str:
+def is_investment_question(question: str) -> bool:
+    lower = question.lower()
+    if any(term in lower for term in INVESTMENT_TERMS):
+        return True
+    return bool(re.search(r"\b[A-Z]{1,5}\b", question))
+
+
+def collect_invest_context_files(invest_wiki: Path, question: str, limit: int) -> list[dict[str, str]]:
+    if not invest_wiki.exists() or not is_investment_question(question):
+        return []
+    selected: list[Path] = []
+    index = invest_wiki / "_index.md"
+    if index.exists():
+        selected.append(index)
+    candidates = [
+        path
+        for path in sorted(invest_wiki.rglob("*.md"))
+        if path.name != "_index.md" and ".trash" not in path.parts and ".obsidian" not in path.parts
+    ]
+    selected.extend(select_ranked(candidates, question, max(0, limit - len(selected)), include_zero=False))
+    deduped = []
+    seen = set()
+    for path in selected[:limit]:
+        resolved = str(path)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        deduped.append({"path": resolved, "relative": str(path.relative_to(invest_wiki))})
+    return deduped
+
+
+def render_context(
+    handle: str,
+    question: str,
+    files: list[dict[str, str]],
+    invest_files: list[dict[str, str]] | None = None,
+) -> str:
     chunks = [
         f"# {handle} Ask Context",
         "",
         f"Question: {question}",
         "",
-        "## Selected Files",
+        "## KOL Wiki Context",
     ]
     for item in files:
         path = Path(item["path"])
@@ -162,6 +231,16 @@ def render_context(handle: str, question: str, files: list[dict[str, str]]) -> s
             "",
             path.read_text(encoding="utf-8", errors="ignore"),
         ])
+    if invest_files:
+        chunks.extend(["", "## Invest Wiki Context"])
+        for item in invest_files:
+            path = Path(item["path"])
+            chunks.extend([
+                "",
+                f"### invest/{item['relative']}",
+                "",
+                path.read_text(encoding="utf-8", errors="ignore"),
+            ])
     return "\n".join(chunks).rstrip() + "\n"
 
 
@@ -175,6 +254,7 @@ def render_prompt(handle: str, question: str, context_file: Path) -> str:
 - 不预测具体时间和价格点位。
 - 如果档案没有覆盖，明确说“超出覆盖范围”。
 - 使用第一人称只是模拟档案视角，不代表本人新发言。
+- 如果上下文包含 Invest Wiki Context，可把它作为交叉验证材料，但必须区分 KOL 档案证据和投资 wiki 背景知识。
 
 先阅读上下文：
 
@@ -186,6 +266,7 @@ def render_prompt(handle: str, question: str, context_file: Path) -> str:
 
 输出要求：
 - 引用使用 `[[wikilink]]` 指向上下文里的 KOL wiki 文件。
+- 引用投资 wiki 时明确标注来自 invest wiki。
 - 结尾必须包含 metadata block：
 
 ```meta
@@ -198,13 +279,14 @@ caveats: ""
 """
 
 
-def write_context_pack(vault: Path, handle: str, question: str, pack_id: str) -> Path:
+def write_context_pack(vault: Path, handle: str, question: str, pack_id: str, invest_wiki: Path, invest_limit: int) -> Path:
     wdir = wiki_dir(vault, handle)
     workspace = wdir / ".ask_context_packs" / pack_id
     files = collect_context_files(vault, handle, question)
+    invest_files = collect_invest_context_files(invest_wiki, question, invest_limit)
     workspace.mkdir(parents=True, exist_ok=True)
     context_path = workspace / "context.md"
-    context_path.write_text(render_context(handle, question, files), encoding="utf-8")
+    context_path.write_text(render_context(handle, question, files, invest_files), encoding="utf-8")
     (workspace / "prompt.md").write_text(render_prompt(handle, question, context_path), encoding="utf-8")
     write_json(
         workspace / "manifest.json",
@@ -215,6 +297,8 @@ def write_context_pack(vault: Path, handle: str, question: str, pack_id: str) ->
             "executes_model": False,
             "question": question,
             "selected_files": files,
+            "invest_wiki": str(invest_wiki),
+            "invest_files": invest_files,
             "context": str(context_path),
             "prompt": str(workspace / "prompt.md"),
         },
@@ -236,7 +320,14 @@ def load_workspace(vault: Path, handle: str, pack_id: str) -> tuple[Path, dict[s
     return workspace, read_json(manifest_path)
 
 
-def ensure_context_pack(vault: Path, handle: str, question: str, pack_id: str) -> tuple[Path, dict[str, Any]]:
+def ensure_context_pack(
+    vault: Path,
+    handle: str,
+    question: str,
+    pack_id: str,
+    invest_wiki: Path,
+    invest_limit: int,
+) -> tuple[Path, dict[str, Any]]:
     workspace = workspace_path(vault, handle, pack_id)
     if (workspace / "manifest.json").exists():
         workspace, manifest = load_workspace(vault, handle, pack_id)
@@ -245,7 +336,7 @@ def ensure_context_pack(vault: Path, handle: str, question: str, pack_id: str) -
         if manifest.get("question") != question:
             raise RuntimeError(f"existing pack-id has different question: {pack_id}")
         return workspace, manifest
-    write_context_pack(vault, handle, question, pack_id)
+    write_context_pack(vault, handle, question, pack_id, invest_wiki, invest_limit)
     return load_workspace(vault, handle, pack_id)
 
 
@@ -276,10 +367,12 @@ def run_context_pack(
     handle: str,
     question: str,
     pack_id: str,
+    invest_wiki: Path,
+    invest_limit: int,
     runner_command: str,
     timeout: int,
 ) -> tuple[int, dict[str, Any]]:
-    workspace, manifest = ensure_context_pack(vault, handle, question, pack_id)
+    workspace, manifest = ensure_context_pack(vault, handle, question, pack_id, invest_wiki, invest_limit)
     runner_argv = parse_runner_command(runner_command)
     prompt_path = Path(str(manifest.get("prompt") or workspace / "prompt.md"))
     answer_path = workspace / "answer.md"
@@ -341,6 +434,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Prepare single-KOL ask context packs")
     parser.add_argument("name", help="KOL handle or alias")
     parser.add_argument("--vault", type=Path, default=DEFAULT_VAULT)
+    parser.add_argument("--invest-wiki", type=Path, default=DEFAULT_INVEST_WIKI)
+    parser.add_argument("--invest-limit", type=int, default=5)
     parser.add_argument("--question", required=True)
     parser.add_argument("--mode", choices=("context-pack", "run"), default="context-pack")
     parser.add_argument("--pack-id", default="")
@@ -359,10 +454,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "run":
             if not args.runner_command:
                 raise RuntimeError("--runner-command is required for --mode run")
-            rc, result = run_context_pack(args.vault, handle, args.question, pack_id, args.runner_command, args.timeout)
+            rc, result = run_context_pack(
+                args.vault,
+                handle,
+                args.question,
+                pack_id,
+                args.invest_wiki,
+                args.invest_limit,
+                args.runner_command,
+                args.timeout,
+            )
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return rc
-        workspace = write_context_pack(args.vault, handle, args.question, pack_id)
+        workspace = write_context_pack(args.vault, handle, args.question, pack_id, args.invest_wiki, args.invest_limit)
         print(
             json.dumps(
                 {

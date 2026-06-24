@@ -10,7 +10,7 @@ Use this skill for single-KOL digital twin Q&A.
 ## Boundary
 
 - Reads KOL wiki pages.
-- May read the local invest wiki when the question is investment-related.
+- Reads the local invest wiki when the question is investment-related and the wiki exists.
 - `context-pack` mode writes only a review workspace under `wiki/.ask_context_packs/`.
 - `run` mode executes `prompt.md` through a user-supplied stdin/stdout runner command and writes `answer.md`.
 - Does not fetch X/Twitter.
@@ -34,6 +34,7 @@ Generate a context pack:
 ```bash
 python3 plugins/kol-tools/scripts/kol_ask.py TJ_Research \
   --vault /Users/saberrao/vault/kol \
+  --invest-wiki /Users/saberrao/vault/invest/wiki \
   --question "怎么看 NVDA 和 AI capex?" \
   --mode context-pack
 ```
@@ -45,6 +46,7 @@ Run with any CLI that reads prompt text from stdin and writes the answer to stdo
 ```bash
 python3 plugins/kol-tools/scripts/kol_ask.py TJ_Research \
   --vault /Users/saberrao/vault/kol \
+  --invest-wiki /Users/saberrao/vault/invest/wiki \
   --question "怎么看 NVDA 和 AI capex?" \
   --mode run \
   --pack-id <pack-id> \
