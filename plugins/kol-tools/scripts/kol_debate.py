@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build multi-KOL debate prompt packs without calling a model."""
+"""Build or run multi-KOL debate prompt packs with an external runner."""
 
 from __future__ import annotations
 

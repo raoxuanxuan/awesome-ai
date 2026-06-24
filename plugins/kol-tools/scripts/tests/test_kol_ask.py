@@ -100,6 +100,93 @@ class KolAskTests(unittest.TestCase):
             self.assertEqual(result["status"], "error")
             self.assertIn("未注册", result["error"])
 
+    def test_run_mode_executes_prompt_with_runner_command(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            vault = self.build_vault(root)
+            runner = root / "fake_runner.py"
+            runner.write_text(
+                """import sys
+
+prompt = sys.stdin.read()
+assert "KOL Ask Prompt" in prompt
+print("基于档案，我会保持中立。\\n\\n```meta\\nconfidence: 中\\nin_comfort_zone: yes\\nprimary_sources: []\\nwikilinks_used: []\\ncaveats: 测试桩\\n```")
+""",
+                encoding="utf-8",
+            )
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "投资TALK君",
+                    "--vault",
+                    str(vault),
+                    "--question",
+                    "怎么看 NVDA 和 AI 算力？",
+                    "--mode",
+                    "run",
+                    "--pack-id",
+                    "ask-run",
+                    "--runner-command",
+                    f"{sys.executable} {runner}",
+                ])
+
+            self.assertEqual(rc, 0)
+            result = json.loads(out.getvalue())
+            self.assertEqual(result["status"], "run_complete")
+            workspace = Path(result["workspace"])
+            answer = workspace / "answer.md"
+            self.assertTrue(answer.exists())
+            self.assertIn("confidence", answer.read_text(encoding="utf-8"))
+            manifest = json.loads((workspace / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["run_status"], "complete")
+            self.assertTrue(manifest["executes_model"])
+            self.assertNotIn("argv", manifest["runner"])
+            self.assertEqual(manifest["runner"]["executable"], sys.executable)
+
+    def test_run_mode_refuses_pack_id_mismatch(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            vault = self.build_vault(root)
+            runner = root / "fake_runner.py"
+            runner.write_text("print('ok')\n", encoding="utf-8")
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "TJ_Research",
+                    "--vault",
+                    str(vault),
+                    "--question",
+                    "怎么看 NVDA？",
+                    "--mode",
+                    "context-pack",
+                    "--pack-id",
+                    "ask-run",
+                ])
+            self.assertEqual(rc, 0)
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "TJ_Research",
+                    "--vault",
+                    str(vault),
+                    "--question",
+                    "不同问题",
+                    "--mode",
+                    "run",
+                    "--pack-id",
+                    "ask-run",
+                    "--runner-command",
+                    f"{sys.executable} {runner}",
+                ])
+
+            self.assertEqual(rc, 2)
+            result = json.loads(out.getvalue())
+            self.assertEqual(result["status"], "error")
+            self.assertIn("different question", result["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Build single-KOL ask context packs without calling a model."""
+"""Build or run single-KOL ask context packs with an external runner."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import re
+import shlex
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,10 @@ def now_compact() -> str:
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def read_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def registry_path(vault: Path) -> Path:
@@ -206,6 +212,7 @@ def write_context_pack(vault: Path, handle: str, question: str, pack_id: str) ->
             "handle": handle,
             "mode": "context-pack",
             "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "executes_model": False,
             "question": question,
             "selected_files": files,
             "context": str(context_path),
@@ -215,13 +222,130 @@ def write_context_pack(vault: Path, handle: str, question: str, pack_id: str) ->
     return workspace
 
 
+def workspace_path(vault: Path, handle: str, pack_id: str) -> Path:
+    if not pack_id:
+        raise RuntimeError("--pack-id is required when loading an existing ask workspace")
+    return wiki_dir(vault, handle) / ".ask_context_packs" / pack_id
+
+
+def load_workspace(vault: Path, handle: str, pack_id: str) -> tuple[Path, dict[str, Any]]:
+    workspace = workspace_path(vault, handle, pack_id)
+    manifest_path = workspace / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"missing ask manifest: {manifest_path}")
+    return workspace, read_json(manifest_path)
+
+
+def ensure_context_pack(vault: Path, handle: str, question: str, pack_id: str) -> tuple[Path, dict[str, Any]]:
+    workspace = workspace_path(vault, handle, pack_id)
+    if (workspace / "manifest.json").exists():
+        workspace, manifest = load_workspace(vault, handle, pack_id)
+        if manifest.get("handle") != handle:
+            raise RuntimeError(f"existing pack-id has different handle: {pack_id}")
+        if manifest.get("question") != question:
+            raise RuntimeError(f"existing pack-id has different question: {pack_id}")
+        return workspace, manifest
+    write_context_pack(vault, handle, question, pack_id)
+    return load_workspace(vault, handle, pack_id)
+
+
+def update_manifest(workspace: Path, updates: dict[str, Any]) -> dict[str, Any]:
+    manifest_path = workspace / "manifest.json"
+    manifest = read_json(manifest_path)
+    manifest.update(updates)
+    write_json(manifest_path, manifest)
+    return manifest
+
+
+def parse_runner_command(value: str) -> list[str]:
+    argv = shlex.split(value)
+    if not argv:
+        raise RuntimeError("--runner-command cannot be empty")
+    return argv
+
+
+def runner_metadata(runner_argv: list[str]) -> dict[str, Any]:
+    return {
+        "executable": runner_argv[0],
+        "arg_count": len(runner_argv),
+    }
+
+
+def run_context_pack(
+    vault: Path,
+    handle: str,
+    question: str,
+    pack_id: str,
+    runner_command: str,
+    timeout: int,
+) -> tuple[int, dict[str, Any]]:
+    workspace, manifest = ensure_context_pack(vault, handle, question, pack_id)
+    runner_argv = parse_runner_command(runner_command)
+    prompt_path = Path(str(manifest.get("prompt") or workspace / "prompt.md"))
+    answer_path = workspace / "answer.md"
+    started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    completed = subprocess.run(
+        runner_argv,
+        input=prompt_path.read_text(encoding="utf-8"),
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+    answer_path.write_text(completed.stdout, encoding="utf-8")
+    stderr_path = ""
+    if completed.stderr:
+        stderr = workspace / "answer.stderr"
+        stderr.write_text(completed.stderr, encoding="utf-8")
+        stderr_path = str(stderr)
+    run_step = {
+        "prompt": str(prompt_path),
+        "output": str(answer_path),
+        "returncode": completed.returncode,
+        "started_at": started,
+        "completed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "stderr": stderr_path,
+    }
+    if completed.returncode != 0:
+        update_manifest(
+            workspace,
+            {
+                "run_status": "failed",
+                "executes_model": True,
+                "runner": runner_metadata(runner_argv),
+                "run_step": run_step,
+            },
+        )
+        return 2, {"handle": handle, "status": "run_failed", "workspace": str(workspace), "run_step": run_step}
+
+    update_manifest(
+        workspace,
+        {
+            "run_status": "complete",
+            "executed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "executes_model": True,
+            "runner": runner_metadata(runner_argv),
+            "run_step": run_step,
+            "answer": str(answer_path),
+        },
+    )
+    return 0, {
+        "handle": handle,
+        "status": "run_complete",
+        "workspace": str(workspace),
+        "answer": str(answer_path),
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Prepare single-KOL ask context packs")
     parser.add_argument("name", help="KOL handle or alias")
     parser.add_argument("--vault", type=Path, default=DEFAULT_VAULT)
     parser.add_argument("--question", required=True)
-    parser.add_argument("--mode", choices=("context-pack",), default="context-pack")
+    parser.add_argument("--mode", choices=("context-pack", "run"), default="context-pack")
     parser.add_argument("--pack-id", default="")
+    parser.add_argument("--runner-command", default="", help="external command that reads prompt from stdin and writes answer to stdout")
+    parser.add_argument("--timeout", type=int, default=600)
     return parser
 
 
@@ -232,6 +356,12 @@ def main(argv: list[str] | None = None) -> int:
         entry = resolve_handle(args.vault, args.name)
         handle = str(entry["handle"])
         pack_id = args.pack_id or f"ask-{now_compact()}"
+        if args.mode == "run":
+            if not args.runner_command:
+                raise RuntimeError("--runner-command is required for --mode run")
+            rc, result = run_context_pack(args.vault, handle, args.question, pack_id, args.runner_command, args.timeout)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return rc
         workspace = write_context_pack(args.vault, handle, args.question, pack_id)
         print(
             json.dumps(

@@ -21,7 +21,7 @@ caveats: ...
 
 Use `plugins/kol-tools/templates/persona-system-prompt.md` as the base prompt.
 
-Current productized command:
+Create a context pack:
 
 ```bash
 python3 plugins/kol-tools/scripts/kol_ask.py <handle-or-alias> \
@@ -39,5 +39,25 @@ vault/kol/<handle>/wiki/.ask_context_packs/<pack-id>/
 └── prompt.md
 ```
 
-It does not call a model. The generated `prompt.md` is the stable handoff to a
-Codex/Claude/OpenAI runner or manual review.
+Run:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_ask.py <handle-or-alias> \
+  --vault /Users/saberrao/vault/kol \
+  --question "<question>" \
+  --mode run \
+  --pack-id <pack-id> \
+  --runner-command "<stdin-stdout-runner>"
+```
+
+`--runner-command` is parsed with `shlex.split` and executed without a shell.
+Avoid putting secrets directly in command arguments; use environment variables
+or a wrapper script. The manifest records only the executable and argument count.
+
+Run mode writes:
+
+```text
+vault/kol/<handle>/wiki/.ask_context_packs/<pack-id>/
+├── answer.md
+└── manifest.json
+```

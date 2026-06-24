@@ -74,6 +74,7 @@ python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/sabe
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode validate --pack-id <pack-id>
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode commit --pack-id <pack-id>
 python3 plugins/kol-tools/scripts/kol_ask.py TJ_Research --vault /Users/saberrao/vault/kol --question "怎么看 NVDA 和 AI capex?" --mode context-pack
+python3 plugins/kol-tools/scripts/kol_ask.py TJ_Research --vault /Users/saberrao/vault/kol --question "怎么看 NVDA 和 AI capex?" --mode run --pack-id <pack-id> --runner-command "<stdin-stdout-runner>"
 python3 plugins/kol-tools/scripts/kol_debate.py --vault /Users/saberrao/vault/kol --kols TJ_Research,LinQingV --question "AI capex 是泡沫吗？" --rounds 2 --mode prompt-pack
 python3 plugins/kol-tools/scripts/kol_debate.py --vault /Users/saberrao/vault/kol --kols TJ_Research,LinQingV --question "AI capex 是泡沫吗？" --rounds 2 --mode run --pack-id <pack-id> --runner-command "<stdin-stdout-runner>"
 ```
@@ -109,7 +110,11 @@ workspace under:
 /Users/saberrao/vault/kol/<handle>/wiki/.ask_context_packs/
 ```
 
-It does not call a model; use the generated `prompt.md` with the runner of choice.
+`context-pack` does not call a model; use the generated `prompt.md` with the runner of choice.
+
+`kol_ask.py --mode run` uses the same workspace, executes `prompt.md` through
+`--runner-command`, and writes `answer.md`. The runner must read stdin and write
+stdout. The manifest stores redacted runner metadata, not the full command.
 
 `kol_debate.py --mode prompt-pack` writes a multi-KOL debate workspace under:
 
