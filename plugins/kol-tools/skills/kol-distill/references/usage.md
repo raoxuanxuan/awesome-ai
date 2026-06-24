@@ -2,7 +2,7 @@
 
 `kol-distill` turns a ready ingest delta into a reviewable distillation workspace.
 
-Current productized mode:
+Start with a prompt pack:
 
 ```bash
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research \
