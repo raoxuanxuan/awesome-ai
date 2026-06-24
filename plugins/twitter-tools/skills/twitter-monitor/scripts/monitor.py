@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from fetch_timeline import ingest_tweet_pool, maybe_ingest_tweet_pool
+from fetch_timeline import fetch_timeline_window, ingest_tweet_pool
 from twitter_fetch_runner import run_twitter_fetch
 
 
@@ -19,9 +19,8 @@ DEFAULT_RUNTIME = Path("/Users/saberrao/ai-workspace/content-creation/.twitter-m
 SEEN_STATUSES = {"saved", "skipped", "fetched"}
 SHORT_TEXT_LIMIT = 40
 DEFAULT_INTERVAL_MINUTES = 60
-DEFAULT_LOOKBACK_MINUTES = 70
-DEFAULT_FIRST_RUN_LOOKBACK_MINUTES = 60
 DEFAULT_MAX_SCAN_PER_USER = 50
+DEFAULT_WINDOW_GRACE_MINUTES = 10
 
 
 def now_iso() -> str:
@@ -173,43 +172,45 @@ def item_status(user_entry: dict[str, Any], tweet_id: str) -> str:
     return str(item.get("status", ""))
 
 
-def setting_minutes(settings: dict[str, Any], key: str, default: int) -> int:
+def setting_minutes(
+    settings: dict[str, Any], key: str, default: int, *, minimum: int = 1
+) -> int:
     try:
-        value = int(settings.get(key) or default)
+        raw = settings.get(key)
+        value = int(default if raw is None or raw == "" else raw)
     except (TypeError, ValueError):
         value = default
-    return max(value, 1)
+    return max(value, minimum)
 
 
 def scan_limit(settings: dict[str, Any]) -> int:
     try:
-        value = int(settings.get("max_scan_per_user") or DEFAULT_MAX_SCAN_PER_USER)
+        raw = settings.get("max_scan_per_user")
+        value = int(DEFAULT_MAX_SCAN_PER_USER if raw is None or raw == "" else raw)
     except (TypeError, ValueError):
         value = DEFAULT_MAX_SCAN_PER_USER
     return max(value, 1)
 
 
-def compute_window_start(user_entry: dict[str, Any], settings: dict[str, Any], now: datetime) -> datetime:
-    if user_entry.get("last_success_at"):
-        minutes = setting_minutes(settings, "lookback_minutes", DEFAULT_LOOKBACK_MINUTES)
-    else:
-        minutes = setting_minutes(
-            settings,
-            "first_run_lookback_minutes",
-            DEFAULT_FIRST_RUN_LOOKBACK_MINUTES,
-        )
-    return now - timedelta(minutes=minutes)
+def floor_to_interval(dt: datetime, interval_minutes: int) -> datetime:
+    interval_seconds = interval_minutes * 60
+    timestamp = int(dt.timestamp())
+    floored = timestamp - (timestamp % interval_seconds)
+    return datetime.fromtimestamp(floored, timezone.utc)
 
 
-def item_created_at(item: dict[str, Any]) -> datetime | None:
-    return parse_iso_datetime(str(item.get("created_at") or ""))
-
-
-def in_window(item: dict[str, Any], window_start: datetime) -> bool:
-    created = item_created_at(item)
-    if created is None:
-        return True
-    return created >= window_start
+def compute_closed_window(settings: dict[str, Any], now: datetime) -> tuple[datetime, datetime, int]:
+    interval = setting_minutes(settings, "interval_minutes", DEFAULT_INTERVAL_MINUTES)
+    grace = setting_minutes(
+        settings,
+        "window_grace_minutes",
+        DEFAULT_WINDOW_GRACE_MINUTES,
+        minimum=0,
+    )
+    boundary = floor_to_interval(now, interval)
+    if now < boundary + timedelta(minutes=grace):
+        boundary = boundary - timedelta(minutes=interval)
+    return boundary - timedelta(minutes=interval), boundary, grace
 
 
 def has_url(text: str) -> bool:
@@ -275,7 +276,7 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
     mark_skipped = bool(settings.get("mark_skipped_as_seen", True))
     user_entry = user_state(state, username)
     now = current_time()
-    window_start = compute_window_start(user_entry, settings, now)
+    window_start, window_end, grace_minutes = compute_closed_window(settings, now)
     report = {
         "timeline_count": 0,
         "within_window": 0,
@@ -290,23 +291,34 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
             DEFAULT_INTERVAL_MINUTES,
         ),
         "window_start": format_iso(window_start),
+        "window_end": format_iso(window_end),
+        "window_grace_minutes": grace_minutes,
+        "window_status": "",
+        "cache_hit": False,
         "scan_limit": limit,
     }
-    timeline = run_twitter_fetch(["timeline", "--user", username, "--limit", str(limit)])
-    maybe_ingest_tweet_pool(timeline)
+    timeline = fetch_timeline_window(
+        username,
+        format_iso(window_start),
+        format_iso(window_end),
+        limit,
+        grace_minutes,
+    )
     items = timeline.get("items") or []
-    report["timeline_count"] = len(items)
+    snapshot = timeline.get("snapshot") or {}
+    report["timeline_count"] = int(timeline.get("timeline_count") or len(items))
+    report["within_window"] = int(timeline.get("within_window") or len(items))
+    report["outside_window"] = int(timeline.get("outside_window") or 0)
+    report["window_status"] = str(snapshot.get("status") or "")
+    report["cache_hit"] = bool(timeline.get("cache_hit"))
     user_entry["last_checked"] = format_iso(now)
     user_entry["window_start"] = format_iso(window_start)
+    user_entry["window_end"] = format_iso(window_end)
 
     for item in items:
         tweet_id = str(item.get("id") or "")
         if not tweet_id:
             continue
-        if not in_window(item, window_start):
-            report["outside_window"] += 1
-            continue
-        report["within_window"] += 1
         if item_status(user_entry, tweet_id) in SEEN_STATUSES:
             report["already_seen"] += 1
             continue

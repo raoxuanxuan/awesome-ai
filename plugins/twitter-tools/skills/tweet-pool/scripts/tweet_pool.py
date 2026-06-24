@@ -6,19 +6,47 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
 
 DEFAULT_RUNTIME = Path("/Users/saberrao/ai-workspace/content-creation/.tweet-pool")
-CACHE_DIRS = ("tweets", "authors", "media", "timelines", "fetch_state", "consumers")
+CACHE_DIRS = (
+    "tweets",
+    "authors",
+    "media",
+    "timelines",
+    "windows",
+    "fetch_state",
+    "consumers",
+)
 COMPLETENESS_KEYS = ("timeline", "single", "thread", "history", "media")
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_iso_datetime(value: str) -> datetime | None:
+    if not value:
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def format_iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def runtime_dir(env: Optional[Mapping[str, str]] = None) -> Path:
@@ -48,6 +76,24 @@ def write_json(path: Path, data: Any) -> None:
         encoding="utf-8",
     )
     tmp.replace(path)
+
+
+def safe_username(username: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", username.strip().lstrip("@")) or "unknown"
+
+
+def compact_iso(value: str) -> str:
+    parsed = parse_iso_datetime(value)
+    if parsed is None:
+        return re.sub(r"[^A-Za-z0-9]+", "", value) or "unknown"
+    return parsed.strftime("%Y%m%dT%H%M%SZ")
+
+
+def window_snapshot_path(
+    runtime: Path, username: str, window_start: str, window_end: str
+) -> Path:
+    name = f"{compact_iso(window_start)}_{compact_iso(window_end)}.json"
+    return runtime / "windows" / safe_username(username) / name
 
 
 def read_input(path: str) -> Any:
@@ -336,6 +382,190 @@ def ingest_payload(payload: Any, runtime: Path) -> dict[str, Any]:
     }
 
 
+def root_items(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, dict) and isinstance(payload.get("items"), list):
+        return [item for item in payload["items"] if isinstance(item, dict)]
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    return []
+
+
+def item_created_at(item: dict[str, Any]) -> datetime | None:
+    return parse_iso_datetime(str(item.get("created_at") or ""))
+
+
+def tweet_ids_in_window(
+    items: list[dict[str, Any]], window_start: datetime, window_end: datetime
+) -> list[str]:
+    tweet_ids: list[str] = []
+    for item in items:
+        created = item_created_at(item)
+        tweet_id = str(item.get("id") or "")
+        if not tweet_id or created is None:
+            continue
+        if window_start <= created < window_end:
+            tweet_ids.append(tweet_id)
+    return tweet_ids
+
+
+def timeline_coverage(
+    items: list[dict[str, Any]], window_start: datetime, limit: int
+) -> dict[str, Any]:
+    created_values = [created for item in items if (created := item_created_at(item))]
+    newest = max(created_values) if created_values else None
+    oldest = min(created_values) if created_values else None
+    observed_count = len(items)
+    hit_scan_limit = limit > 0 and observed_count >= limit
+    covers_window_start = not hit_scan_limit or (
+        oldest is not None and oldest <= window_start
+    )
+    return {
+        "newest_created_at": format_iso(newest) if newest else "",
+        "oldest_created_at": format_iso(oldest) if oldest else "",
+        "covers_window_start": covers_window_start,
+        "hit_scan_limit": hit_scan_limit,
+        "unparseable_created_at": observed_count - len(created_values),
+    }
+
+
+def window_status(
+    payload: Any,
+    *,
+    window_end: datetime,
+    now: datetime,
+    grace_minutes: int,
+    coverage: dict[str, Any],
+) -> str:
+    if isinstance(payload, dict) and payload.get("error"):
+        return "failed"
+    if not coverage.get("covers_window_start"):
+        return "incomplete"
+    if now < window_end + timedelta(minutes=max(grace_minutes, 0)):
+        return "provisional"
+    return "finalized"
+
+
+def build_window_snapshot(
+    payload: Any,
+    *,
+    username: str,
+    window_start: str,
+    window_end: str,
+    limit: int,
+    grace_minutes: int,
+    now: str,
+) -> dict[str, Any]:
+    start_dt = parse_iso_datetime(window_start)
+    end_dt = parse_iso_datetime(window_end)
+    now_dt = parse_iso_datetime(now)
+    if start_dt is None or end_dt is None or now_dt is None:
+        raise ValueError("window-start, window-end, and now must be ISO datetimes")
+    if start_dt >= end_dt:
+        raise ValueError("window-start must be earlier than window-end")
+
+    items = root_items(payload)
+    coverage = timeline_coverage(items, start_dt, limit)
+    source = payload.get("source", "") if isinstance(payload, dict) else ""
+    mode = payload.get("mode", "timeline") if isinstance(payload, dict) else "timeline"
+    fetched_at = payload.get("fetched_at", now) if isinstance(payload, dict) else now
+    tweet_ids = tweet_ids_in_window(items, start_dt, end_dt)
+    return {
+        "version": 1,
+        "mode": "timeline_window",
+        "provider": source,
+        "source_mode": mode,
+        "username": username,
+        "window_start": format_iso(start_dt),
+        "window_end": format_iso(end_dt),
+        "fetched_at": str(fetched_at or now),
+        "status": window_status(
+            payload,
+            window_end=end_dt,
+            now=now_dt,
+            grace_minutes=grace_minutes,
+            coverage=coverage,
+        ),
+        "tweet_ids": tweet_ids,
+        "observed_count": len(items),
+        "coverage": coverage,
+        "request": {
+            "limit": limit,
+            "grace_minutes": grace_minutes,
+        },
+        "error": payload.get("error") if isinstance(payload, dict) else None,
+    }
+
+
+def read_window_snapshot(
+    runtime: Path, username: str, window_start: str, window_end: str
+) -> dict[str, Any] | None:
+    path = window_snapshot_path(runtime, username, window_start, window_end)
+    if not path.exists():
+        return None
+    return read_json(path)
+
+
+def write_window_snapshot(
+    runtime: Path, snapshot: dict[str, Any]
+) -> dict[str, Any]:
+    ensure_runtime(runtime)
+    path = window_snapshot_path(
+        runtime,
+        str(snapshot["username"]),
+        str(snapshot["window_start"]),
+        str(snapshot["window_end"]),
+    )
+    snapshot = dict(snapshot)
+    snapshot["path"] = str(path)
+    write_json(path, snapshot)
+    return snapshot
+
+
+def window_payload(
+    runtime: Path,
+    snapshot: dict[str, Any] | None,
+    *,
+    include_items: bool = False,
+) -> dict[str, Any]:
+    payload = {
+        "ok": True,
+        "runtime": str(runtime),
+        "found": snapshot is not None,
+        "snapshot": snapshot,
+    }
+    if include_items:
+        tweet_ids = snapshot.get("tweet_ids", []) if snapshot else []
+        payload["items"] = export_tweets(runtime, tweet_ids=[str(item) for item in tweet_ids])
+    return payload
+
+
+def put_window(
+    payload: Any,
+    runtime: Path,
+    *,
+    username: str,
+    window_start: str,
+    window_end: str,
+    limit: int,
+    grace_minutes: int,
+    now: str,
+    include_items: bool = False,
+) -> dict[str, Any]:
+    ensure_runtime(runtime)
+    ingest_payload(payload, runtime)
+    snapshot = build_window_snapshot(
+        payload,
+        username=username,
+        window_start=window_start,
+        window_end=window_end,
+        limit=limit,
+        grace_minutes=grace_minutes,
+        now=now,
+    )
+    snapshot = write_window_snapshot(runtime, snapshot)
+    return window_payload(runtime, snapshot, include_items=include_items)
+
+
 def set_consumer_status(
     consumer: str,
     tweet_id: str,
@@ -483,6 +713,28 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--limit", type=int, default=0, help="Keep only the newest N matched tweets")
     export.add_argument("--format", choices=("json", "jsonl"), default="json")
     export.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
+
+    window = subparsers.add_parser("window", help="Read or write timeline window snapshots")
+    window_sub = window.add_subparsers(dest="window_command", required=True)
+    get_window = window_sub.add_parser("get", help="Read a cached timeline window snapshot")
+    get_window.add_argument("--user", required=True)
+    get_window.add_argument("--window-start", required=True)
+    get_window.add_argument("--window-end", required=True)
+    get_window.add_argument("--include-items", action="store_true")
+    get_window.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
+
+    put_window_cmd = window_sub.add_parser(
+        "put", help="Ingest a timeline payload and write its window snapshot"
+    )
+    put_window_cmd.add_argument("--user", required=True)
+    put_window_cmd.add_argument("--window-start", required=True)
+    put_window_cmd.add_argument("--window-end", required=True)
+    put_window_cmd.add_argument("--input", required=True, help="Input JSON path or '-'")
+    put_window_cmd.add_argument("--limit", type=int, required=True)
+    put_window_cmd.add_argument("--grace-minutes", type=int, default=10)
+    put_window_cmd.add_argument("--now", default="")
+    put_window_cmd.add_argument("--include-items", action="store_true")
+    put_window_cmd.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
     return parser
 
 
@@ -536,6 +788,26 @@ def main(argv: Optional[list[str]] = None) -> int:
                 "count": len(items),
                 "items": items,
             }
+        elif args.command == "window" and args.window_command == "get":
+            snapshot = read_window_snapshot(
+                runtime,
+                args.user,
+                args.window_start,
+                args.window_end,
+            )
+            payload = window_payload(runtime, snapshot, include_items=args.include_items)
+        elif args.command == "window" and args.window_command == "put":
+            payload = put_window(
+                read_input(args.input),
+                runtime,
+                username=args.user,
+                window_start=args.window_start,
+                window_end=args.window_end,
+                limit=args.limit,
+                grace_minutes=args.grace_minutes,
+                now=args.now or now_iso(),
+                include_items=args.include_items,
+            )
         else:
             parser.error("unknown command")
             return 2

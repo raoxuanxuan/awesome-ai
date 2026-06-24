@@ -37,6 +37,7 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 | 稳定导出 | 按 tweet ID、作者、since_id 导出 canonical tweets，供 KOL、监控、归档等上层复用 |
 | 作者缓存 | 从 tweet item 中沉淀 `authors/<username>.json`，可保存头像 URL |
 | 观察记录 | 为 timeline/history 追加 `timelines/<username>.jsonl` 和 `fetch_state/<username>.json` |
+| 窗口快照 | 为 user + closed time window 写入 `windows/<username>/...json`，空窗口也能复用 |
 | 消费状态 | 为 `twitter-monitor`、`kol-twin` 等 consumer 独立维护 `consumers/<consumer>.json` |
 
 `twitter-monitor` 当前支持：
@@ -45,9 +46,10 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 | --- | --- |
 | 用户监控 | 按 `/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/config.yaml` 扫描配置用户的时间窗口内新内容 |
 | Runner | `twitter-monitor run` 读取配置、去重、过滤、补全候选推文并更新 monitor state |
-| 推文池旁路缓存 | 成功抓到的 timeline payload 会先写入 `tweet-pool`，供其他 workflow 复用 |
+| 窗口快照复用 | 先读 `tweet-pool window get`，finalized/空窗口不再重复请求 X |
+| 推文池缓存 | cache miss 时抓到的 timeline payload 会写入 `tweet-pool`，供其他 workflow 复用 |
 | 标准输出 | `fetch_timeline.py` 直接输出 `twitter-fetch` 标准 envelope，不再输出旧版 `username/tweets/tweet_count` |
-| 时间窗口 | 每轮按 `lookback_minutes` 过滤 timeline item，`max_scan_per_user` 只是扫描上限 |
+| 时间窗口 | 每轮检查上一个已关闭 interval，`window_grace_minutes` 控制整点后延迟确认 |
 | 新内容过滤 | 根据 state 去重，过滤低价值短推和纯转推 |
 | 内容补全 | 对候选内容调用 `twitter-fetch single --include-thread` |
 | Obsidian 归档 | 待接入；当前 runner 只标记 `fetched`，不会标记 `saved` |

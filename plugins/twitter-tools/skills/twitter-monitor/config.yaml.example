@@ -35,8 +35,7 @@ topics:
 settings:
   translate_non_chinese: true
   interval_minutes: 60
-  lookback_minutes: 70
-  first_run_lookback_minutes: 60
+  window_grace_minutes: 10
   max_scan_per_user: 50
   include_replies: false
   include_retweets: false

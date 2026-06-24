@@ -57,6 +57,37 @@ plugins/twitter-tools/skills/tweet-pool/bin/tweet-pool \
   export --tweet-ids-file /tmp/tweet-ids.json --pretty
 ```
 
+## Cache Timeline Windows
+
+Write a reusable snapshot for one closed time window:
+
+```bash
+plugins/twitter-tools/skills/twitter-fetch/bin/twitter-fetch timeline \
+  --user karpathy \
+  --limit 50 \
+  --pretty \
+  | plugins/twitter-tools/skills/tweet-pool/bin/tweet-pool window put \
+      --user karpathy \
+      --window-start 2026-06-24T03:00:00Z \
+      --window-end 2026-06-24T04:00:00Z \
+      --input - \
+      --limit 50 \
+      --grace-minutes 10 \
+      --include-items \
+      --pretty
+```
+
+Read a finalized snapshot without requesting X/Twitter again:
+
+```bash
+plugins/twitter-tools/skills/tweet-pool/bin/tweet-pool window get \
+  --user karpathy \
+  --window-start 2026-06-24T03:00:00Z \
+  --window-end 2026-06-24T04:00:00Z \
+  --include-items \
+  --pretty
+```
+
 ## Mark Consumer State
 
 ```bash

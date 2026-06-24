@@ -14,6 +14,8 @@ The tweet pool is a normalized fetch cache, not a business queue.
 │   └── <tweet_id>/manifest.json
 ├── timelines/
 │   └── <username>.jsonl
+├── windows/
+│   └── <username>/<window_start>_<window_end>.json
 ├── fetch_state/
 │   └── <username>.json
 └── consumers/
@@ -98,6 +100,49 @@ not create duplicate tweet files. Merge rules are intentionally conservative:
   "tweet_ids": ["123", "124"]
 }
 ```
+
+## Timeline Window Snapshot
+
+`windows/<username>/<window_start>_<window_end>.json` stores a reusable
+timeline scan result for one closed time window. Empty `tweet_ids` is a valid
+cached result.
+
+```json
+{
+  "version": 1,
+  "mode": "timeline_window",
+  "provider": "syndication",
+  "source_mode": "timeline",
+  "username": "karpathy",
+  "window_start": "2026-06-24T03:00:00Z",
+  "window_end": "2026-06-24T04:00:00Z",
+  "fetched_at": "2026-06-24T04:11:00Z",
+  "status": "finalized",
+  "tweet_ids": ["123"],
+  "observed_count": 21,
+  "coverage": {
+    "newest_created_at": "2026-06-24T03:59:00Z",
+    "oldest_created_at": "2026-06-23T20:00:00Z",
+    "covers_window_start": true,
+    "hit_scan_limit": false,
+    "unparseable_created_at": 0
+  },
+  "request": {
+    "limit": 50,
+    "grace_minutes": 10
+  },
+  "error": null
+}
+```
+
+Statuses:
+
+| Status | Meaning |
+| --- | --- |
+| `provisional` | Window is not past the grace period yet |
+| `finalized` | Timeline scan covered the window and the grace period has passed |
+| `incomplete` | The scan hit its limit before proving coverage of the window start |
+| `failed` | Provider returned an error; callers may retry |
 
 ## Fetch State
 

@@ -79,9 +79,19 @@ def resolve_tweet_pool_bin() -> Path:
 
 def ingest_tweet_pool(payload: dict[str, Any]) -> dict[str, Any]:
     runner = resolve_tweet_pool_bin()
+    return run_tweet_pool(["ingest", "--input", "-"], payload, runner=runner)
+
+
+def run_tweet_pool(
+    args: list[str],
+    payload: dict[str, Any] | None = None,
+    *,
+    runner: Path | None = None,
+) -> dict[str, Any]:
+    runner = runner or resolve_tweet_pool_bin()
     completed = subprocess.run(
-        [str(runner), "ingest", "--input", "-"],
-        input=json.dumps(payload, ensure_ascii=False),
+        [str(runner), *args],
+        input=json.dumps(payload, ensure_ascii=False) if payload is not None else None,
         check=False,
         capture_output=True,
         text=True,
@@ -106,6 +116,71 @@ def maybe_ingest_tweet_pool(payload: dict[str, Any]) -> None:
         ingest_tweet_pool(payload)
     except RuntimeError as exc:
         print(f"Warning: tweet-pool ingest failed: {exc}", file=sys.stderr)
+
+
+def window_summary(payload: dict[str, Any], *, cache_hit: bool) -> dict[str, Any]:
+    snapshot = payload.get("snapshot") or {}
+    tweet_ids = snapshot.get("tweet_ids") or []
+    observed_count = int(snapshot.get("observed_count") or 0)
+    return {
+        "ok": True,
+        "items": payload.get("items") or [],
+        "snapshot": snapshot,
+        "cache_hit": cache_hit,
+        "timeline_count": observed_count,
+        "within_window": len(tweet_ids),
+        "outside_window": max(observed_count - len(tweet_ids), 0),
+    }
+
+
+def fetch_timeline_window(
+    username: str,
+    window_start: str,
+    window_end: str,
+    limit: int,
+    grace_minutes: int,
+) -> dict[str, Any]:
+    cache_payload = run_tweet_pool(
+        [
+            "window",
+            "get",
+            "--user",
+            username,
+            "--window-start",
+            window_start,
+            "--window-end",
+            window_end,
+            "--include-items",
+        ]
+    )
+    snapshot = cache_payload.get("snapshot") or {}
+    if cache_payload.get("found") and snapshot.get("status") == "finalized":
+        return window_summary(cache_payload, cache_hit=True)
+
+    timeline = run_twitter_fetch(["timeline", "--user", username, "--limit", str(limit)])
+    window_payload = run_tweet_pool(
+        [
+            "window",
+            "put",
+            "--user",
+            username,
+            "--window-start",
+            window_start,
+            "--window-end",
+            window_end,
+            "--input",
+            "-",
+            "--limit",
+            str(limit),
+            "--grace-minutes",
+            str(grace_minutes),
+            "--now",
+            now_iso(),
+            "--include-items",
+        ],
+        timeline,
+    )
+    return window_summary(window_payload, cache_hit=False)
 
 
 def now_iso() -> str:

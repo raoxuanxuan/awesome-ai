@@ -25,6 +25,26 @@ def timeline_payload(*items):
     }
 
 
+def window_payload(*items, **overrides):
+    payload = {
+        "ok": True,
+        "items": list(items),
+        "snapshot": {
+            "status": "finalized",
+            "tweet_ids": [str(item.get("id")) for item in items],
+            "observed_count": len(items),
+            "window_start": "2026-06-23T09:00:00Z",
+            "window_end": "2026-06-23T10:00:00Z",
+        },
+        "cache_hit": False,
+        "timeline_count": len(items),
+        "within_window": len(items),
+        "outside_window": 0,
+    }
+    payload.update(overrides)
+    return payload
+
+
 def tweet(tweet_id, text="useful long tweet about AI systems and monitor architecture", **overrides):
     item = {
         "id": str(tweet_id),
@@ -76,8 +96,7 @@ users:
 
 settings:
   interval_minutes: 60
-  lookback_minutes: 70
-  first_run_lookback_minutes: 60
+  window_grace_minutes: 0
   max_scan_per_user: 20
   include_replies: false
   include_retweets: false
@@ -99,8 +118,6 @@ settings:
 
             def fake_fetch(args):
                 calls.append(args)
-                if args[0] == "timeline":
-                    return timeline_payload(useful, reply, short)
                 if args[0] == "single":
                     return full
                 raise AssertionError(args)
@@ -108,7 +125,11 @@ settings:
             with mock.patch.object(monitor, "now_iso", return_value="2026-06-23T10:00:00Z"):
                 with mock.patch.object(monitor, "run_twitter_fetch", side_effect=fake_fetch):
                     with mock.patch.object(monitor, "ingest_tweet_pool") as ingest_pool:
-                        with mock.patch.object(monitor, "maybe_ingest_tweet_pool") as ingest_timeline:
+                        with mock.patch.object(
+                            monitor,
+                            "fetch_timeline_window",
+                            return_value=window_payload(useful, reply, short),
+                        ) as fetch_window:
                             report = monitor.run_monitor(runtime)
 
             self.assertEqual(report["users"]["karpathy"]["timeline_count"], 3)
@@ -117,11 +138,10 @@ settings:
             self.assertEqual(
                 calls,
                 [
-                    ["timeline", "--user", "karpathy", "--limit", "20"],
                     ["single", "--url", useful["url"], "--include-thread"],
                 ],
             )
-            self.assertEqual(ingest_timeline.call_count, 1)
+            fetch_window.assert_called_once()
             self.assertEqual(ingest_pool.call_count, 1)
 
             state = json.loads((runtime / ".state.json").read_text())
@@ -163,16 +183,17 @@ settings:
             with mock.patch.object(monitor, "now_iso", return_value="2026-06-23T10:00:00Z"):
                 with mock.patch.object(
                     monitor,
-                    "run_twitter_fetch",
-                    return_value=timeline_payload(tweet("101"), tweet("102")),
-                ) as fetch:
-                    with mock.patch.object(monitor, "maybe_ingest_tweet_pool"):
+                    "fetch_timeline_window",
+                    return_value=window_payload(tweet("101"), tweet("102")),
+                ) as fetch_window:
+                    with mock.patch.object(monitor, "run_twitter_fetch") as fetch:
                         report = monitor.run_monitor(runtime)
 
-            self.assertEqual(fetch.call_count, 1)
+            fetch_window.assert_called_once()
+            self.assertEqual(fetch.call_count, 0)
             self.assertEqual(report["users"]["karpathy"]["already_seen"], 2)
 
-    def test_run_filters_items_outside_lookback_window(self):
+    def test_run_uses_closed_window_snapshot_boundaries(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp) / ".twitter-monitor"
             runtime.mkdir()
@@ -183,8 +204,7 @@ users:
 
 settings:
   interval_minutes: 60
-  lookback_minutes: 70
-  first_run_lookback_minutes: 60
+  window_grace_minutes: 0
   max_scan_per_user: 50
   include_replies: false
   include_retweets: false
@@ -204,8 +224,6 @@ settings:
 
             def fake_fetch(args):
                 calls.append(args)
-                if args[0] == "timeline":
-                    return timeline_payload(inside, outside)
                 if args[0] == "single":
                     return full
                 raise AssertionError(args)
@@ -213,24 +231,51 @@ settings:
             with mock.patch.object(monitor, "now_iso", return_value="2026-06-24T10:00:00Z"):
                 with mock.patch.object(monitor, "run_twitter_fetch", side_effect=fake_fetch):
                     with mock.patch.object(monitor, "ingest_tweet_pool"):
-                        with mock.patch.object(monitor, "maybe_ingest_tweet_pool"):
+                        with mock.patch.object(
+                            monitor,
+                            "fetch_timeline_window",
+                            return_value=window_payload(
+                                inside,
+                                snapshot={
+                                    "status": "finalized",
+                                    "tweet_ids": ["201"],
+                                    "observed_count": 2,
+                                    "window_start": "2026-06-24T09:00:00Z",
+                                    "window_end": "2026-06-24T10:00:00Z",
+                                },
+                                timeline_count=2,
+                                within_window=1,
+                                outside_window=1,
+                                cache_hit=True,
+                            ),
+                        ) as fetch_window:
                             report = monitor.run_monitor(runtime)
 
             user_report = report["users"]["karpathy"]
             self.assertEqual(user_report["timeline_count"], 2)
             self.assertEqual(user_report["outside_window"], 1)
+            self.assertEqual(user_report["window_end"], "2026-06-24T10:00:00Z")
+            self.assertEqual(user_report["window_status"], "finalized")
+            self.assertIs(user_report["cache_hit"], True)
             self.assertEqual(user_report["fetched"], 1)
             self.assertEqual(
                 calls,
                 [
-                    ["timeline", "--user", "karpathy", "--limit", "50"],
                     ["single", "--url", inside["url"], "--include-thread"],
                 ],
+            )
+            fetch_window.assert_called_once_with(
+                "karpathy",
+                "2026-06-24T09:00:00Z",
+                "2026-06-24T10:00:00Z",
+                50,
+                0,
             )
 
             state = json.loads((runtime / ".state.json").read_text())
             user_state = state["users"]["karpathy"]
             self.assertEqual(user_state["window_start"], "2026-06-24T09:00:00Z")
+            self.assertEqual(user_state["window_end"], "2026-06-24T10:00:00Z")
             self.assertEqual(user_state["last_success_at"], "2026-06-24T10:00:00Z")
             self.assertEqual(user_state["items"]["201"]["status"], "fetched")
             self.assertEqual(user_state["items"]["201"]["created_at"], "2026-06-24T09:30:00Z")

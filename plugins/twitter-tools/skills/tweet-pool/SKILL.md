@@ -37,6 +37,8 @@ Runtime layout:
 │   └── <tweet_id>/manifest.json
 ├── timelines/
 │   └── <username>.jsonl
+├── windows/
+│   └── <username>/<window_start>_<window_end>.json
 ├── fetch_state/
 │   └── <username>.json
 └── consumers/
@@ -77,6 +79,28 @@ tweet-pool export --tweet-ids 123,124 --pretty
 tweet-pool export --user karpathy --since-id 123 --format jsonl
 ```
 
+Write or read a finalized timeline window snapshot:
+
+```bash
+twitter-fetch timeline --user karpathy --limit 50 --pretty \
+  | tweet-pool window put \
+      --user karpathy \
+      --window-start 2026-06-24T03:00:00Z \
+      --window-end 2026-06-24T04:00:00Z \
+      --input - \
+      --limit 50 \
+      --grace-minutes 10 \
+      --include-items \
+      --pretty
+
+tweet-pool window get \
+  --user karpathy \
+  --window-start 2026-06-24T03:00:00Z \
+  --window-end 2026-06-24T04:00:00Z \
+  --include-items \
+  --pretty
+```
+
 Set a consumer-specific status:
 
 ```bash
@@ -91,8 +115,18 @@ tweet-pool consumer set \
 
 1. `twitter-fetch` fetches normalized data.
 2. `tweet-pool ingest` writes or updates `tweets/<tweet_id>.json`.
-3. A consumer exports cached tweets and applies its own policy.
-4. The consumer writes only its own status file under `consumers/`.
+3. `tweet-pool window put` can record a user/time-window snapshot, including empty windows.
+4. A consumer exports cached tweets and applies its own policy.
+5. The consumer writes only its own status file under `consumers/`.
 
 This allows `twitter-monitor` to skip a short reply while `kol-twin` can still
 ingest it as useful persona or interaction evidence.
+
+Window snapshot statuses:
+
+| Status | Meaning |
+| --- | --- |
+| `provisional` | Window is not past the grace period yet |
+| `finalized` | Timeline scan covered the window and the grace period has passed |
+| `incomplete` | The scan hit its limit before proving coverage of the window start |
+| `failed` | Provider returned an error; callers may retry |
