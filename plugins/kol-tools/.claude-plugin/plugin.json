@@ -5,21 +5,5 @@
   "author": {
     "name": "saberrao"
   },
-  "skills": "./skills/",
-  "interface": {
-    "displayName": "KOL Tools",
-    "shortDescription": "Build and query KOL digital twins.",
-    "longDescription": "KOL Tools turns fetched X/Twitter history, replies, quotes, subscriber imports, and manual articles into private KOL archives with cleaning, deterministic indexing, distillation prompts, single-KOL ask, and multi-KOL debate workflows. It depends on twitter-tools for X/Twitter fetching and keeps private vault data outside the plugin.",
-    "developerName": "saberrao",
-    "category": "Productivity",
-    "capabilities": [
-      "Refresh KOL raw archives",
-      "Clean low-density posts",
-      "Index KOL corpora",
-      "Distill KOL methods and positions",
-      "Ask one KOL twin",
-      "Debate multiple KOL twins"
-    ],
-    "defaultPrompt": "Use private KOL archives to refresh, distill, ask, or debate KOL digital twins."
-  }
+  "skills": "./skills/"
 }
