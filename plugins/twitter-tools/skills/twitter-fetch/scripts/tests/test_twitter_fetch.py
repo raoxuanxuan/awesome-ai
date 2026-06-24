@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -262,6 +263,229 @@ class TwitterFetchTests(unittest.TestCase):
 
         self.assertEqual(payload, {"ok": True})
         self.assertNotIn("x-client-transaction-id", client.headers_seen)
+
+    def test_nitter_replies_snapshot_is_normalized_to_standard_items(self):
+        snapshot = """
+- link [e1]:
+  - /url: /alice/status/123#m
+- link "Alice":
+- link "@alice":
+- link "2h":
+- text: Replying to
+- link "@sama":
+- text: thoughtful reply  1  2  3
+- link [e2]:
+  - /url: /pic/orig/media%2Fabc.jpg
+- link "https://example.com":
+  - /url: https://example.com
+"""
+
+        items = providers.parse_nitter_replies_snapshot(
+            snapshot,
+            original_author="sama",
+            conversation_id="100",
+        )
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["id"], "123")
+        self.assertEqual(items[0]["url"], "https://x.com/alice/status/123")
+        self.assertEqual(items[0]["author"], "Alice")
+        self.assertEqual(items[0]["screen_name"], "alice")
+        self.assertEqual(items[0]["full_text"], "thoughtful reply")
+        self.assertEqual(items[0]["conversation_id"], "100")
+        self.assertIs(items[0]["is_reply"], True)
+        self.assertEqual(items[0]["in_reply_to"], "100")
+        self.assertEqual(items[0]["stats"]["likes"], 3)
+        self.assertEqual(items[0]["stats"]["retweets"], 2)
+        self.assertEqual(items[0]["stats"]["replies"], 1)
+        self.assertEqual(
+            items[0]["media"]["images"][0]["url"],
+            "https://pbs.twimg.com/media/abc.jpg",
+        )
+        self.assertEqual(items[0]["links"], ["https://example.com"])
+
+    def test_fetch_replies_nitter_returns_standard_envelope_from_snapshot(self):
+        snapshot = """
+- link [e1]:
+  - /url: /alice/status/123#m
+- link "Alice":
+- link "@alice":
+- link "2h":
+- text: Replying to
+- link "@sama":
+- text: useful reply
+"""
+
+        payload = providers.fetch_replies_nitter(
+            "https://x.com/sama/status/100",
+            snapshot_fetcher=lambda _url, _session_key, _port: snapshot,
+        )
+
+        self.assertIs(payload["ok"], True)
+        self.assertEqual(payload["mode"], "replies")
+        self.assertEqual(payload["source"], "nitter")
+        self.assertEqual(payload["input"]["url"], "https://x.com/sama/status/100")
+        self.assertEqual(payload["input"]["conversation_id"], "100")
+        self.assertEqual([item["id"] for item in payload["items"]], ["123"])
+        self.assertIsNone(payload["error"])
+
+    def test_graphql_search_payload_extracts_conversation_replies_from_any_author(self):
+        payload = {
+            "data": {
+                "search_by_raw_query": {
+                    "search_timeline": {
+                        "timeline": {
+                            "instructions": [
+                                {
+                                    "entries": [
+                                        {
+                                            "entryId": "tweet-100",
+                                            "content": {
+                                                "itemContent": {
+                                                    "tweet_results": {
+                                                        "result": {
+                                                            "rest_id": "100",
+                                                            "legacy": {
+                                                                "id_str": "100",
+                                                                "full_text": "root",
+                                                                "conversation_id_str": "100",
+                                                                "created_at": "Mon Jan 01 12:00:00 +0000 2026",
+                                                            },
+                                                            "core": {
+                                                                "user_results": {
+                                                                    "result": {
+                                                                        "core": {
+                                                                            "name": "Sam",
+                                                                            "screen_name": "sama",
+                                                                        }
+                                                                    }
+                                                                }
+                                                            },
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                        },
+                                        {
+                                            "entryId": "tweet-123",
+                                            "content": {
+                                                "itemContent": {
+                                                    "tweet_results": {
+                                                        "result": {
+                                                            "rest_id": "123",
+                                                            "legacy": {
+                                                                "id_str": "123",
+                                                                "full_text": "reply",
+                                                                "conversation_id_str": "100",
+                                                                "in_reply_to_status_id_str": "100",
+                                                                "created_at": "Mon Jan 01 12:01:00 +0000 2026",
+                                                            },
+                                                            "core": {
+                                                                "user_results": {
+                                                                    "result": {
+                                                                        "core": {
+                                                                            "name": "Alice",
+                                                                            "screen_name": "alice",
+                                                                        }
+                                                                    }
+                                                                }
+                                                            },
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                        },
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+
+        items = providers.extract_graphql_search_replies_page(payload, "100")
+
+        self.assertEqual([item["id"] for item in items], ["123"])
+        self.assertEqual(items[0]["screen_name"], "alice")
+        self.assertEqual(items[0]["conversation_id"], "100")
+        self.assertEqual(items[0]["in_reply_to"], "100")
+
+    def test_auto_replies_uses_graphql_first(self):
+        payload = providers.fetch_replies(
+            "https://x.com/sama/status/100",
+            provider="auto",
+            provider_funcs={
+                "graphql": lambda: models.standard_response(
+                    mode="replies",
+                    source="graphql",
+                    input_value={"url": "https://x.com/sama/status/100"},
+                    items=[models.mock_tweet("https://x.com/alice/status/123")],
+                ),
+                "browseros": lambda: self.fail("browseros should not be called"),
+                "camofox_nitter": lambda: self.fail("camofox should not be called"),
+                "direct_nitter": lambda: self.fail("direct nitter should not be called"),
+            },
+        )
+
+        self.assertIs(payload["ok"], True)
+        self.assertEqual(payload["source"], "graphql")
+        self.assertEqual(payload["meta"]["provider_chain"], ["graphql"])
+
+    def test_auto_replies_falls_back_after_graphql_error(self):
+        payload = providers.fetch_replies(
+            "https://x.com/sama/status/100",
+            provider="auto",
+            provider_funcs={
+                "graphql": lambda: models.standard_response(
+                    mode="replies",
+                    source="graphql",
+                    input_value={"url": "https://x.com/sama/status/100"},
+                    error=models.standard_error(
+                        "missing_cookies",
+                        "cookies required",
+                        provider="runtime",
+                    ),
+                ),
+                "browseros": lambda: models.standard_response(
+                    mode="replies",
+                    source="browseros",
+                    input_value={"url": "https://x.com/sama/status/100"},
+                    items=[models.mock_tweet("https://x.com/alice/status/123")],
+                ),
+            },
+        )
+
+        self.assertIs(payload["ok"], True)
+        self.assertEqual(payload["source"], "browseros")
+        self.assertEqual(payload["meta"]["provider_chain"], ["graphql", "browseros"])
+        self.assertEqual(payload["meta"]["provider_errors"][0]["code"], "missing_cookies")
+
+    def test_cli_replies_accepts_provider_and_cookie_file(self):
+        with mock.patch("twitter_fetch.cli.providers.fetch_replies") as fetch:
+            fetch.return_value = models.standard_response(
+                mode="replies",
+                source="graphql",
+                input_value={"url": "https://x.com/sama/status/100"},
+            )
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = cli.main(
+                    [
+                        "replies",
+                        "--url",
+                        "https://x.com/sama/status/100",
+                        "--provider",
+                        "graphql",
+                        "--cookie-file",
+                        "/tmp/cookies.json",
+                    ]
+                )
+
+        self.assertEqual(rc, 0)
+        fetch.assert_called_once()
+        self.assertEqual(fetch.call_args.kwargs["provider"], "graphql")
+        self.assertEqual(fetch.call_args.kwargs["cookie_file"], "/tmp/cookies.json")
 
     def test_cli_mock_single_outputs_standard_json(self):
         out = StringIO()

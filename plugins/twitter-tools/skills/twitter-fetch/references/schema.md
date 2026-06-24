@@ -8,7 +8,7 @@ Every command writes one JSON object to stdout.
 {
   "ok": true,
   "mode": "single | timeline | thread | replies | history",
-  "source": "fxtwitter | syndication | nitter | graphql | mock",
+  "source": "fxtwitter | syndication | nitter | direct_nitter | browseros | graphql | auto | mock",
   "fetched_at": "UTC ISO timestamp",
   "input": {},
   "items": [],

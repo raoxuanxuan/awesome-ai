@@ -159,12 +159,17 @@ def _replies(args: argparse.Namespace) -> int:
         payload = models.standard_response(
             mode="replies",
             source="mock",
-            input_value={"url": args.url},
+            input_value={"url": args.url, "provider": args.provider},
             items=[],
         )
     else:
-        payload = providers.fetch_replies_nitter(
-            args.url, port=args.port, nitter=args.nitter
+        payload = providers.fetch_replies(
+            args.url,
+            provider=args.provider,
+            cookie_file=args.cookie_file,
+            port=args.port,
+            nitter=args.nitter,
+            browseros_endpoint=args.browseros_endpoint,
         )
     _print(payload, args.pretty)
     return 0 if payload["ok"] else 1
@@ -275,8 +280,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     replies = sub.add_parser("replies", help="Fetch replies best-effort")
     replies.add_argument("--url", required=True)
+    replies.add_argument(
+        "--provider",
+        choices=["auto", "graphql", "browseros", "camofox_nitter", "direct_nitter"],
+        default="auto",
+        help="Replies provider chain or explicit provider (default: auto)",
+    )
+    replies.add_argument("--cookie-file", default=str(default_cookie_path()))
     replies.add_argument("--port", type=int, default=9377)
     replies.add_argument("--nitter", default="nitter.net")
+    replies.add_argument("--browseros-endpoint", default="http://127.0.0.1:9000/mcp")
     replies.add_argument("--pretty", action="store_true")
     replies.add_argument("--mock", action="store_true", help=argparse.SUPPRESS)
     replies.set_defaults(func=_replies)

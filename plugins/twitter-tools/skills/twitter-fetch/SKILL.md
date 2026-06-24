@@ -146,7 +146,7 @@ Current provider status:
 | `single` | FxTwitter | active; quote included when provider returns it; thread context optional via `--include-thread` or `--context thread/full` |
 | `timeline` | Twitter Syndication | active |
 | `thread` | Twitter Syndication + normalized items | active for recent timeline window |
-| `replies` | Camofox/Nitter | structured placeholder; old rich parser still lives in `x-tweet-fetcher` backup path |
+| `replies` | GraphQL -> BrowserOS -> Camofox/Nitter -> direct Nitter | active provider chain; GraphQL uses explicit cookies, BrowserOS uses local MCP, Nitter paths do not use cookies |
 | `history` | GraphQL UserTweetsAndReplies | active pure JSON/JSONL fetch; no vault/state writes |
 
 ## Output Contract
@@ -205,7 +205,16 @@ Use default `single` when the caller wants exactly the linked post plus quote da
 
 Use `single --include-thread` or `single --context thread` when the caller wants the linked post with discovered same-thread items attached under `items[0].thread`.
 
-Use `single --context full` as the future full-context switch. Today it expands thread context; replies remain a placeholder until the Camofox/Nitter parser is migrated.
+Use `single --context full` as the future full-context switch. Today it expands thread context. Use standalone `replies` when callers need a best-effort replies envelope.
+
+`replies --provider auto` tries GraphQL first, then BrowserOS, then Camofox/Nitter, then direct Nitter HTTP. Use an explicit provider when debugging:
+
+```bash
+bin/twitter-fetch replies --url "https://x.com/user/status/123" --provider graphql --cookie-file ~/.twitter-fetch/.cookies.json --pretty
+bin/twitter-fetch replies --url "https://x.com/user/status/123" --provider browseros --pretty
+bin/twitter-fetch replies --url "https://x.com/user/status/123" --provider camofox_nitter --pretty
+bin/twitter-fetch replies --url "https://x.com/user/status/123" --provider direct_nitter --pretty
+```
 
 Keep the standalone `thread` command for callers that want only the thread result envelope instead of a single tweet envelope.
 

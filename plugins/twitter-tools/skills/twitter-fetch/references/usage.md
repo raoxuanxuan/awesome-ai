@@ -9,6 +9,7 @@ Use this reference when a user asks how to use `twitter-fetch`, which command to
 | Fetch one public tweet or X Article | `bin/twitter-fetch single --url "<url>" --pretty` |
 | Fetch one tweet and attach discovered same-thread context | `bin/twitter-fetch single --url "<url>" --include-thread --pretty` |
 | Fetch only a thread envelope | `bin/twitter-fetch thread --url "<url>" --pretty` |
+| Fetch visible replies best-effort | `bin/twitter-fetch replies --url "<url>" --provider auto --pretty` |
 | Fetch a user's recent public timeline | `bin/twitter-fetch timeline --user <handle> --limit 10 --pretty` |
 | Fetch deeper user tweets/replies history | `bin/twitter-fetch history --user <handle> --max-pages 1 --jsonl` |
 | Initialize runtime/check dependencies | `scripts/bootstrap.sh --check --init-runtime` |
@@ -32,7 +33,7 @@ Use thread context when the caller wants the linked tweet plus same-author threa
 bin/twitter-fetch single --url "https://x.com/user/status/123" --include-thread --pretty
 ```
 
-`--context full` currently expands thread context. Replies are still a reserved placeholder.
+`--context full` currently expands thread context. Fetch replies separately with `replies`.
 
 ### Thread
 
@@ -43,6 +44,31 @@ bin/twitter-fetch thread --url "https://x.com/user/status/123" --pretty
 ```
 
 Thread discovery depends on the recent public timeline window and may miss older or hidden thread items.
+
+### Replies
+
+Use this when the caller wants visible replies as a standard JSON envelope:
+
+```bash
+bin/twitter-fetch replies --url "https://x.com/user/status/123" --pretty
+```
+
+Default replies use a provider chain:
+
+```text
+graphql -> browseros -> camofox_nitter -> direct_nitter
+```
+
+GraphQL uses the explicit `--cookie-file` path, defaulting to `~/.twitter-fetch/.cookies.json`. It never reads browser cookies by itself. BrowserOS talks to the local BrowserOS MCP endpoint, defaulting to `http://127.0.0.1:9000/mcp`, and depends on what the X web UI renders. The Nitter providers do not use cookies; `camofox_nitter` needs local Camofox on `--port`, while `direct_nitter` is a low-confidence direct HTTP fallback.
+
+Debug one provider at a time:
+
+```bash
+bin/twitter-fetch replies --url "https://x.com/user/status/123" --provider graphql --cookie-file ~/.twitter-fetch/.cookies.json --pretty
+bin/twitter-fetch replies --url "https://x.com/user/status/123" --provider browseros --pretty
+bin/twitter-fetch replies --url "https://x.com/user/status/123" --provider camofox_nitter --pretty
+bin/twitter-fetch replies --url "https://x.com/user/status/123" --provider direct_nitter --pretty
+```
 
 ### Timeline
 

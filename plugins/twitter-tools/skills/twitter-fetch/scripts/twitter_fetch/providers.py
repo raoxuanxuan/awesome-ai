@@ -33,8 +33,10 @@ GRAPHQL_BUNDLE_HOME = "https://x.com/"
 GRAPHQL_FALLBACK_HASHES = {
     "UserTweetsAndReplies": "D5eKzDa5ZoJuC1TCeAXbWA",
     "UserByScreenName": "IGgvgiOx4QZndDHuD3x9TQ",
+    "SearchTimeline": "Bcw3RzK-PatNAmbnw54hFw",
 }
 TWITTER_SNOWFLAKE_EPOCH = 1288834974657
+REPLIES_PROVIDER_ORDER = ("graphql", "browseros", "camofox_nitter", "direct_nitter")
 
 
 def _int(value: Any) -> int:
@@ -336,7 +338,9 @@ def normalize_syndication_entry(entry: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def normalize_graphql_tweet(tr: dict[str, Any], want_screen: str) -> dict[str, Any] | None:
+def normalize_graphql_tweet(
+    tr: dict[str, Any], want_screen: str | None = None
+) -> dict[str, Any] | None:
     if tr.get("__typename") == "TweetWithVisibilityResults":
         tr = tr.get("tweet", {})
     legacy = tr.get("legacy")
@@ -347,7 +351,9 @@ def normalize_graphql_tweet(tr: dict[str, Any], want_screen: str) -> dict[str, A
     user_legacy = user_res.get("legacy", {}) or {}
     screen_name = user_core.get("screen_name") or user_legacy.get("screen_name", "")
     author = user_core.get("name") or user_legacy.get("name", "")
-    if not screen_name or screen_name.lower() != want_screen.lower():
+    if not screen_name:
+        return None
+    if want_screen and screen_name.lower() != want_screen.lower():
         return None
     tweet_id = str(legacy.get("id_str") or tr.get("rest_id") or "")
     if not tweet_id:
@@ -439,6 +445,43 @@ def extract_graphql_history_page(
     return items, bottom
 
 
+def _iter_graphql_tweet_results(obj: Any) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
+    if isinstance(obj, dict):
+        tweet_results = obj.get("tweet_results")
+        if isinstance(tweet_results, dict):
+            result = tweet_results.get("result")
+            if isinstance(result, dict):
+                found.append(result)
+        for value in obj.values():
+            found.extend(_iter_graphql_tweet_results(value))
+    elif isinstance(obj, list):
+        for item in obj:
+            found.extend(_iter_graphql_tweet_results(item))
+    return found
+
+
+def extract_graphql_search_replies_page(
+    payload: dict[str, Any], conversation_id: str
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for result in _iter_graphql_tweet_results(payload):
+        item = normalize_graphql_tweet(result)
+        if not item:
+            continue
+        if item["id"] == conversation_id:
+            continue
+        if item.get("conversation_id") != conversation_id:
+            continue
+        if item["id"] in seen:
+            continue
+        seen.add(item["id"])
+        items.append(item)
+    items.sort(key=lambda item: int(item["id"]))
+    return items
+
+
 def fetch_timeline_syndication(
     username: str, *, limit: int = 20, cookie_file: str | None = None
 ) -> dict[str, Any]:
@@ -505,6 +548,248 @@ def fetch_thread_syndication(url: str, *, limit: int = 50) -> dict[str, Any]:
         input_value={"url": url},
         items=items,
     )
+
+
+def _parse_nitter_stats(raw: str) -> tuple[str, int, int, int, int]:
+    stat_match = re.search(
+        r"^(.*?)\s{2,}(\d[\d,]*)\s{2,}(\d[\d,]*)\s{2,}(\d[\d,]*)$",
+        raw.rstrip(),
+    )
+    if stat_match:
+        text_part = stat_match.group(1).strip()
+        nums = [int(stat_match.group(i).replace(",", "")) for i in (2, 3, 4)]
+        return text_part, nums[0], nums[1], nums[2], 0
+
+    stat_match2 = re.search(
+        r"^(.*?)\s{2,}(\d[\d,]*)\s{2,}(\d[\d,]*)$",
+        raw.rstrip(),
+    )
+    if stat_match2:
+        text_part = stat_match2.group(1).strip()
+        nums = [int(stat_match2.group(i).replace(",", "")) for i in (2, 3)]
+        return text_part, nums[0], 0, nums[1], 0
+
+    icon_match = re.search(
+        r"^(.*?)\s*\ue803\s*(\d[\d,]*)\s*\ue80c\s*\ue801\s*(\d[\d,]*)\s*\ue800\s*(\d[\d,]*)",
+        raw,
+    )
+    if icon_match:
+        return (
+            icon_match.group(1).strip(),
+            int(icon_match.group(2).replace(",", "")),
+            0,
+            int(icon_match.group(3).replace(",", "")),
+            int(icon_match.group(4).replace(",", "")),
+        )
+
+    cleaned = re.sub(r"\s*[\ue800-\ue8ff]\s*[\d,]+", "", raw).strip()
+    return cleaned, 0, 0, 0, 0
+
+
+def _is_nitter_timestamp(value: str) -> bool:
+    return bool(
+        re.match(r"^\d+[smhd]$", value)
+        or re.match(r"^[A-Z][a-z]{2} \d+(?:, \d{4})?$", value)
+    )
+
+
+def _nitter_media_dict(media_urls: list[str]) -> dict[str, Any] | None:
+    if not media_urls:
+        return None
+    return {"images": [{"url": media_url} for media_url in media_urls]}
+
+
+def parse_nitter_replies_snapshot(
+    snapshot: str,
+    *,
+    original_author: str,
+    conversation_id: str,
+) -> list[dict[str, Any]]:
+    replies: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    lines = snapshot.split("\n")
+    n = len(lines)
+    i = 0
+
+    while i < n:
+        if lines[i].strip() != "- text: Replying to":
+            i += 1
+            continue
+
+        reply_id = ""
+        reply_screen = ""
+        author_name = ""
+        time_ago = ""
+        text_parts: list[str] = []
+        likes = retweets = replies_count = views = 0
+        stats_set = False
+        media_urls: list[str] = []
+        links: list[str] = []
+
+        for j in range(i - 1, max(-1, i - 16), -1):
+            prev = lines[j].strip()
+            if not reply_id:
+                tid_m = re.match(r"^- /url:\s+/([A-Za-z0-9_]{1,15})/status/(\d+)#m$", prev)
+                if tid_m:
+                    reply_screen = tid_m.group(1)
+                    reply_id = tid_m.group(2)
+            if not reply_screen:
+                handle_m = re.match(r'^- link "@(\w+)"\s*(\[e\d+\])?:?$', prev)
+                if handle_m and handle_m.group(1).lower() != original_author.lower():
+                    reply_screen = handle_m.group(1)
+            if not author_name:
+                name_m = re.match(r'^- link "([^@#][^"]*?)"\s*(\[e\d+\])?:?$', prev)
+                if name_m:
+                    name = name_m.group(1).strip()
+                    if (
+                        name
+                        and not _is_nitter_timestamp(name)
+                        and name.lower() not in {"nitter", "logo", "more replies"}
+                    ):
+                        author_name = name
+            if not time_ago:
+                time_m = re.match(r'^- link "([^"]+)"\s*(\[e\d+\])?:?$', prev)
+                if time_m and _is_nitter_timestamp(time_m.group(1).strip()):
+                    time_ago = time_m.group(1).strip()
+            if reply_id and reply_screen and author_name and time_ago:
+                break
+
+        for j in range(i + 1, min(n, i + 24)):
+            fwd = lines[j].strip()
+            if j > i + 1 and fwd == "- text: Replying to":
+                break
+            if re.match(r'^- link "@\w+"\s*(\[e\d+\])?:?$', fwd):
+                continue
+            if fwd.startswith("- text:"):
+                raw = fwd[len("- text:"):].strip()
+                if not raw:
+                    continue
+                text_part, rc, rt, lk, vw = _parse_nitter_stats(raw)
+                if (lk or rc or rt or vw) and not stats_set:
+                    replies_count = rc
+                    retweets = rt
+                    likes = lk
+                    views = vw
+                    stats_set = True
+                if text_part and text_part.lower() != "replying to":
+                    text_parts.append(text_part)
+                continue
+            media_m = re.match(r"^- /url:\s+/pic/orig/(.+)$", fwd)
+            if media_m:
+                decoded = urllib.parse.unquote(media_m.group(1))
+                if decoded.startswith("media/"):
+                    media_url = f"https://pbs.twimg.com/media/{decoded[6:]}"
+                    if media_url not in media_urls:
+                        media_urls.append(media_url)
+                continue
+            link_m = re.match(r"^- /url:\s+(.+)$", fwd)
+            if link_m:
+                decoded_url = urllib.parse.unquote(link_m.group(1).strip())
+                if decoded_url.startswith("http") and decoded_url not in links:
+                    links.append(decoded_url)
+                continue
+            named_link_m = re.match(r'^- link "([^"]+)"\s*(\[e\d+\])?:?$', fwd)
+            if named_link_m:
+                link_text = named_link_m.group(1).strip()
+                if link_text.startswith("http") and link_text not in links:
+                    links.append(link_text)
+
+        full_text = " ".join(text_parts).strip()
+        if reply_id and reply_screen and full_text:
+            media = _nitter_media_dict(media_urls)
+            key = (reply_screen.lower(), full_text[:120])
+            if key not in seen:
+                seen.add(key)
+                item = {
+                    "id": reply_id,
+                    "url": f"https://x.com/{reply_screen}/status/{reply_id}",
+                    "author": author_name or reply_screen,
+                    "screen_name": reply_screen,
+                    "created_at": time_ago,
+                    "lang": "unknown",
+                    "text": full_text[:280],
+                    "full_text": full_text,
+                    "is_article": False,
+                    "article": None,
+                    "media": media,
+                    "media_count": len(media_urls),
+                    "stats": {
+                        **models.empty_stats(),
+                        "likes": likes,
+                        "retweets": retweets,
+                        "replies": replies_count,
+                        "views": views,
+                    },
+                    "conversation_id": conversation_id,
+                    "is_reply": True,
+                    "in_reply_to": conversation_id,
+                    "is_thread_part": True,
+                    "is_quote": False,
+                    "is_retweet": False,
+                    "quote": None,
+                }
+                if links:
+                    item["links"] = links
+                replies.append(item)
+
+        i += 1
+
+    replies.sort(key=lambda item: int(item["id"]))
+    return replies
+
+
+def _check_camofox(port: int) -> bool:
+    try:
+        req = urllib.request.Request(f"http://localhost:{port}/tabs", method="GET")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            resp.read()
+        return True
+    except Exception:
+        return False
+
+
+def _fetch_camofox_snapshot(
+    url: str,
+    session_key: str,
+    port: int,
+    *,
+    wait: float = 8,
+) -> str | None:
+    tab_id = None
+    try:
+        payload = json.dumps(
+            {
+                "userId": "twitter-fetch",
+                "sessionKey": session_key,
+                "url": url,
+            }
+        ).encode()
+        req = urllib.request.Request(
+            f"http://localhost:{port}/tabs",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        tab_id = data.get("tabId")
+        if not tab_id:
+            return None
+        time.sleep(wait)
+        snapshot_url = f"http://localhost:{port}/tabs/{tab_id}/snapshot?userId=twitter-fetch"
+        with urllib.request.urlopen(snapshot_url, timeout=15) as resp:
+            snapshot_data = json.loads(resp.read().decode())
+        return snapshot_data.get("snapshot", "")
+    finally:
+        if tab_id:
+            try:
+                close_req = urllib.request.Request(
+                    f"http://localhost:{port}/tabs/{tab_id}",
+                    method="DELETE",
+                )
+                urllib.request.urlopen(close_req, timeout=5)
+            except Exception:
+                pass
 
 
 GRAPHQL_UTAR_FEATURES = {
@@ -854,7 +1139,247 @@ def fetch_history_graphql(
         )
 
 
-def fetch_replies_nitter(url: str, *, port: int = 9377, nitter: str = "nitter.net") -> dict[str, Any]:
+def _cookie_error_response(mode: str, source: str, input_value: dict[str, Any], exc: Exception) -> dict[str, Any]:
+    text = str(exc)
+    code = "missing_cookies" if isinstance(exc, FileNotFoundError) else "invalid_cookies"
+    return models.standard_response(
+        mode=mode,
+        source=source,
+        input_value=input_value,
+        error=models.standard_error(code, text, provider="runtime", retryable=False),
+    )
+
+
+def fetch_replies_graphql(
+    url: str,
+    *,
+    cookie_file: str,
+    product: str = "Latest",
+    count: int = 40,
+    search_payload_fetcher: Any | None = None,
+) -> dict[str, Any]:
+    try:
+        _, tweet_id = models.parse_tweet_url(url)
+    except ValueError as exc:
+        return models.standard_response(
+            mode="replies",
+            source="graphql",
+            input_value={"url": url},
+            error=models.standard_error("bad_url", str(exc), provider="graphql"),
+        )
+    input_value = {
+        "url": url,
+        "conversation_id": tweet_id,
+        "product": product,
+        "count": count,
+        "cookie_file": cookie_file,
+    }
+    try:
+        if search_payload_fetcher is None:
+            import httpx
+
+            cookies = _load_graphql_cookies(cookie_file)
+            cookie_header = f"auth_token={cookies['auth_token']}; ct0={cookies['ct0']}"
+            client = httpx.Client(
+                headers={"User-Agent": GRAPHQL_UA, "Cookie": cookie_header},
+                follow_redirects=True,
+                timeout=30,
+            )
+            try:
+                hashes = _scrape_graphql_hashes(client)
+                try:
+                    transaction = _build_graphql_transaction(client)
+                except Exception:
+                    transaction = None
+                payload = _graphql_get(
+                    client,
+                    transaction,
+                    hashes,
+                    cookies,
+                    "SearchTimeline",
+                    {
+                        "rawQuery": f"conversation_id:{tweet_id}",
+                        "count": count,
+                        "querySource": "typed_query",
+                        "product": product,
+                    },
+                    GRAPHQL_UTAR_FEATURES,
+                )
+            finally:
+                client.close()
+        else:
+            payload = search_payload_fetcher(tweet_id, product, count)
+        items = extract_graphql_search_replies_page(payload, tweet_id)
+        return models.standard_response(
+            mode="replies",
+            source="graphql",
+            input_value=input_value,
+            items=items,
+            meta={"reply_count": len(items), "query": f"conversation_id:{tweet_id}"},
+        )
+    except (FileNotFoundError, RuntimeError) as exc:
+        return _cookie_error_response("replies", "graphql", input_value, exc)
+    except Exception as exc:
+        return models.standard_response(
+            mode="replies",
+            source="graphql",
+            input_value=input_value,
+            error=models.standard_error(
+                "provider_error", str(exc), provider="graphql", retryable=True
+            ),
+        )
+
+
+def _mcp_call(endpoint: str, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = json.dumps(
+        {"jsonrpc": "2.0", "id": int(time.time() * 1000), "method": method, "params": params or {}}
+    ).encode()
+    req = urllib.request.Request(
+        endpoint,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read().decode())
+    if data.get("error"):
+        raise RuntimeError(data["error"])
+    return data.get("result", {})
+
+
+def _parse_browseros_replies_snapshot(snapshot: str, conversation_id: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    lines = snapshot.splitlines()
+    for idx, line in enumerate(lines):
+        match = re.search(
+            r"(?:https://x\.com|https://twitter\.com|)/(?:i/web/status/)?([A-Za-z0-9_]{1,15})?/status/(\d+)",
+            line,
+        )
+        if not match:
+            continue
+        tweet_id = match.group(2)
+        if tweet_id == conversation_id or tweet_id in seen:
+            continue
+        seen.add(tweet_id)
+        screen_name = match.group(1) or "unknown"
+        text_parts = []
+        for nearby in lines[idx : min(len(lines), idx + 12)]:
+            stripped = nearby.strip()
+            text_match = re.search(r'(?:text|link|heading) "([^"]+)"', stripped)
+            if text_match:
+                text = text_match.group(1).strip()
+            elif stripped.startswith("- text:"):
+                text = stripped.split("- text:", 1)[1].strip()
+            else:
+                continue
+            if text and not text.startswith(("http://", "https://", "@")):
+                text_parts.append(text)
+        full_text = " ".join(text_parts).strip()
+        items.append(
+            {
+                "id": tweet_id,
+                "url": f"https://x.com/{screen_name}/status/{tweet_id}",
+                "author": screen_name,
+                "screen_name": screen_name,
+                "created_at": "",
+                "lang": "unknown",
+                "text": full_text[:280],
+                "full_text": full_text,
+                "is_article": False,
+                "article": None,
+                "media": None,
+                "media_count": 0,
+                "stats": models.empty_stats(),
+                "conversation_id": conversation_id,
+                "is_reply": True,
+                "in_reply_to": conversation_id,
+                "is_thread_part": True,
+                "is_quote": False,
+                "is_retweet": False,
+                "quote": None,
+            }
+        )
+    items.sort(key=lambda item: int(item["id"]))
+    return items
+
+
+def fetch_replies_browseros(
+    url: str,
+    *,
+    endpoint: str = "http://127.0.0.1:9000/mcp",
+    max_scrolls: int = 2,
+    snapshot_fetcher: Any | None = None,
+) -> dict[str, Any]:
+    try:
+        _, tweet_id = models.parse_tweet_url(url)
+    except ValueError as exc:
+        return models.standard_response(
+            mode="replies",
+            source="browseros",
+            input_value={"url": url},
+            error=models.standard_error("bad_url", str(exc), provider="browseros"),
+        )
+    search_url = (
+        "https://x.com/search?q="
+        + urllib.parse.quote(f"conversation_id:{tweet_id}")
+        + "&src=typed_query&f=live"
+    )
+    input_value = {
+        "url": url,
+        "conversation_id": tweet_id,
+        "browseros_endpoint": endpoint,
+        "search_url": search_url,
+        "max_scrolls": max_scrolls,
+    }
+    try:
+        if snapshot_fetcher is None:
+            tab = _mcp_call(endpoint, "tools/call", {"name": "tabs", "arguments": {"action": "new", "url": search_url, "hidden": True}})
+            page = tab.get("content", [{}])[0].get("text") if isinstance(tab.get("content"), list) else None
+            page_id_match = re.search(r"\bpage(?:Id)?[=: ]+(\d+)", str(tab))
+            page_id = int(page_id_match.group(1)) if page_id_match else None
+            if page_id is None:
+                structured = tab.get("structuredContent") or tab
+                page_id = structured.get("page") or structured.get("pageId") or structured.get("id")
+            if page_id is None:
+                raise RuntimeError(f"BrowserOS tabs tool did not return a page id: {str(tab)[:300]}")
+            _mcp_call(endpoint, "tools/call", {"name": "wait", "arguments": {"page": int(page_id), "for": "time", "value": 3000}})
+            for _ in range(max_scrolls):
+                _mcp_call(endpoint, "tools/call", {"name": "act", "arguments": {"page": int(page_id), "kind": "scroll", "direction": "down", "amount": 4}})
+                _mcp_call(endpoint, "tools/call", {"name": "wait", "arguments": {"page": int(page_id), "for": "time", "value": 1000}})
+            snap = _mcp_call(endpoint, "tools/call", {"name": "snapshot", "arguments": {"page": int(page_id)}})
+            snapshot = json.dumps(snap, ensure_ascii=False)
+        else:
+            snapshot = snapshot_fetcher(search_url, max_scrolls)
+        items = _parse_browseros_replies_snapshot(snapshot, tweet_id)
+        return models.standard_response(
+            mode="replies",
+            source="browseros",
+            input_value=input_value,
+            items=items,
+            meta={"reply_count": len(items)},
+        )
+    except Exception as exc:
+        return models.standard_response(
+            mode="replies",
+            source="browseros",
+            input_value=input_value,
+            error=models.standard_error(
+                "provider_error", str(exc), provider="browseros", retryable=True
+            ),
+        )
+
+
+def fetch_replies_nitter(
+    url: str,
+    *,
+    port: int = 9377,
+    nitter: str = "nitter.net",
+    snapshot_fetcher: Any | None = None,
+) -> dict[str, Any]:
     try:
         username, tweet_id = models.parse_tweet_url(url)
     except ValueError as exc:
@@ -864,16 +1389,238 @@ def fetch_replies_nitter(url: str, *, port: int = 9377, nitter: str = "nitter.ne
             input_value={"url": url},
             error=models.standard_error("bad_url", str(exc), provider="nitter"),
         )
-    # Keep first version intentionally conservative: existing x-tweet-fetcher still
-    # owns rich Nitter parsing, while twitter-fetch exposes a structured failure.
+    input_value = {
+        "url": url,
+        "nitter": nitter,
+        "port": port,
+        "conversation_id": tweet_id,
+    }
+    nitter_url = f"https://{nitter}/{username}/status/{tweet_id}"
+    try:
+        if snapshot_fetcher is None:
+            if not _check_camofox(port):
+                return models.standard_response(
+                    mode="replies",
+                    source="nitter",
+                    input_value=input_value,
+                    error=models.standard_error(
+                        "missing_camofox",
+                        f"Camofox is not reachable on localhost:{port}",
+                        provider="camofox",
+                        retryable=False,
+                    ),
+                )
+            snapshot_fetcher = _fetch_camofox_snapshot
+        snapshot = snapshot_fetcher(nitter_url, f"replies-{tweet_id}", port)
+        if not snapshot:
+            return models.standard_response(
+                mode="replies",
+                source="nitter",
+                input_value=input_value,
+                error=models.standard_error(
+                    "snapshot_failed",
+                    "Could not fetch a Nitter page snapshot through Camofox",
+                    provider="camofox",
+                    retryable=True,
+                ),
+            )
+        items = parse_nitter_replies_snapshot(
+            snapshot,
+            original_author=username,
+            conversation_id=tweet_id,
+        )
+        return models.standard_response(
+            mode="replies",
+            source="nitter",
+            input_value=input_value,
+            items=items,
+            meta={"reply_count": len(items), "provider_url": nitter_url},
+        )
+    except Exception as exc:
+        return models.standard_response(
+            mode="replies",
+            source="nitter",
+            input_value=input_value,
+            error=models.standard_error(
+                "provider_error", str(exc), provider="nitter", retryable=True
+            ),
+        )
+
+
+def fetch_replies_direct_nitter(
+    url: str,
+    *,
+    nitter: str = "nitter.net",
+    timeout: int = 15,
+    html_fetcher: Any | None = None,
+) -> dict[str, Any]:
+    try:
+        username, tweet_id = models.parse_tweet_url(url)
+    except ValueError as exc:
+        return models.standard_response(
+            mode="replies",
+            source="direct_nitter",
+            input_value={"url": url},
+            error=models.standard_error("bad_url", str(exc), provider="direct_nitter"),
+        )
+    nitter_url = f"https://{nitter}/{username}/status/{tweet_id}"
+    input_value = {"url": url, "nitter": nitter, "conversation_id": tweet_id}
+    try:
+        if html_fetcher is None:
+            req = urllib.request.Request(nitter_url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                html = resp.read().decode("utf-8", "replace")
+        else:
+            html = html_fetcher(nitter_url)
+        if not html:
+            return models.standard_response(
+                mode="replies",
+                source="direct_nitter",
+                input_value=input_value,
+                error=models.standard_error(
+                    "empty_response",
+                    "Nitter returned an empty response",
+                    provider="direct_nitter",
+                    retryable=True,
+                ),
+            )
+        blocks = re.findall(
+            r'<div class="timeline-item[^"]*".*?(?=<div class="timeline-item|\Z)',
+            html,
+            re.DOTALL,
+        )
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for block in blocks:
+            if "replying-to" not in block and "Replying to" not in block:
+                continue
+            id_match = re.search(r'href="/([A-Za-z0-9_]{1,15})/status/(\d+)', block)
+            text_match = re.search(r'<div class="tweet-content[^"]*"[^>]*>(.*?)</div>', block, re.DOTALL)
+            if not id_match or not text_match:
+                continue
+            reply_screen, reply_id = id_match.group(1), id_match.group(2)
+            if reply_id == tweet_id or reply_id in seen:
+                continue
+            seen.add(reply_id)
+            text = re.sub(r"<[^>]+>", " ", text_match.group(1))
+            text = urllib.parse.unquote(text)
+            text = re.sub(r"\s+", " ", text).strip()
+            items.append(
+                {
+                    "id": reply_id,
+                    "url": f"https://x.com/{reply_screen}/status/{reply_id}",
+                    "author": reply_screen,
+                    "screen_name": reply_screen,
+                    "created_at": "",
+                    "lang": "unknown",
+                    "text": text[:280],
+                    "full_text": text,
+                    "is_article": False,
+                    "article": None,
+                    "media": None,
+                    "media_count": 0,
+                    "stats": models.empty_stats(),
+                    "conversation_id": tweet_id,
+                    "is_reply": True,
+                    "in_reply_to": tweet_id,
+                    "is_thread_part": True,
+                    "is_quote": False,
+                    "is_retweet": False,
+                    "quote": None,
+                }
+            )
+        items.sort(key=lambda item: int(item["id"]))
+        return models.standard_response(
+            mode="replies",
+            source="direct_nitter",
+            input_value=input_value,
+            items=items,
+            meta={"reply_count": len(items), "provider_url": nitter_url},
+        )
+    except Exception as exc:
+        return models.standard_response(
+            mode="replies",
+            source="direct_nitter",
+            input_value=input_value,
+            error=models.standard_error(
+                "provider_error", str(exc), provider="direct_nitter", retryable=True
+            ),
+        )
+
+
+def _with_chain_meta(
+    payload: dict[str, Any],
+    chain: list[str],
+    errors: list[dict[str, Any]],
+) -> dict[str, Any]:
+    meta = dict(payload.get("meta") or {})
+    meta["provider_chain"] = chain
+    if errors:
+        meta["provider_errors"] = errors
+    payload["meta"] = meta
+    return payload
+
+
+def fetch_replies(
+    url: str,
+    *,
+    provider: str = "auto",
+    cookie_file: str | None = None,
+    port: int = 9377,
+    nitter: str = "nitter.net",
+    browseros_endpoint: str = "http://127.0.0.1:9000/mcp",
+    provider_funcs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    def default_funcs() -> dict[str, Any]:
+        return {
+            "graphql": lambda: fetch_replies_graphql(
+                url, cookie_file=cookie_file or "", product="Latest"
+            ),
+            "browseros": lambda: fetch_replies_browseros(
+                url, endpoint=browseros_endpoint
+            ),
+            "camofox_nitter": lambda: fetch_replies_nitter(
+                url, port=port, nitter=nitter
+            ),
+            "direct_nitter": lambda: fetch_replies_direct_nitter(url, nitter=nitter),
+        }
+
+    funcs = {**default_funcs(), **(provider_funcs or {})}
+    if provider != "auto":
+        if provider not in funcs:
+            return models.standard_response(
+                mode="replies",
+                source=provider,
+                input_value={"url": url, "provider": provider},
+                error=models.standard_error(
+                    "unknown_provider",
+                    f"Unknown replies provider: {provider}",
+                    provider="runtime",
+                    retryable=False,
+                ),
+            )
+        return _with_chain_meta(funcs[provider](), [provider], [])
+
+    chain: list[str] = []
+    errors: list[dict[str, Any]] = []
+    for name in REPLIES_PROVIDER_ORDER:
+        if name not in funcs:
+            continue
+        chain.append(name)
+        payload = funcs[name]()
+        if payload.get("ok"):
+            return _with_chain_meta(payload, chain, errors)
+        if payload.get("error"):
+            errors.append({"provider": name, **payload["error"]})
     return models.standard_response(
         mode="replies",
-        source="nitter",
-        input_value={"url": url, "nitter": nitter, "port": port},
+        source="auto",
+        input_value={"url": url, "provider": "auto"},
         error=models.standard_error(
-            "not_implemented",
-            f"Replies provider is reserved for Camofox/Nitter migration ({username}/{tweet_id})",
-            provider="nitter",
-            retryable=False,
+            "all_providers_failed",
+            "All replies providers failed",
+            provider="auto",
+            retryable=True,
         ),
+        meta={"provider_chain": chain, "provider_errors": errors},
     )
