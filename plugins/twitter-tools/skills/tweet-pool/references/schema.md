@@ -44,10 +44,34 @@ The tweet pool is a normalized fetch cache, not a business queue.
       "thread": false,
       "history": false,
       "media": false
+    },
+    "field_sources": {
+      "full_text": {
+        "source": "fxtwitter",
+        "mode": "single",
+        "updated_at": "2026-06-23T10:02:00Z"
+      },
+      "screen_name": {
+        "source": "syndication",
+        "mode": "timeline",
+        "updated_at": "2026-06-23T10:01:00Z"
+      }
     }
   }
 }
 ```
+
+## Merge Policy
+
+Repeated ingests of the same tweet ID upsert `tweets/<tweet_id>.json`; they do
+not create duplicate tweet files. Merge rules are intentionally conservative:
+
+- Empty values do not overwrite existing non-empty values.
+- Shorter `text` / `full_text` values do not replace longer canonical text.
+- Empty media payloads and `media_count: 0` do not clear existing media.
+- Empty quote payloads and `is_quote: false` do not clear an existing quote.
+- `_pool.sources`, `_pool.modes`, and `_pool.completeness` accumulate fetch provenance.
+- `_pool.field_sources` records the latest source/mode/time that actually changed each field.
 
 ## Author
 

@@ -51,6 +51,9 @@ Runtime layout:
 - Do not treat `twitter-monitor` skipped/saved state as `kol-twin` ingest state.
 - Do not make global low-quality decisions in the pool. Store signals on tweets; let each consumer decide.
 - Do not write mutable runtime data into the plugin directory.
+- Repeated ingests of the same tweet ID are upserts, not duplicate files.
+- Preserve richer canonical fields: empty values, shorter text, empty media, and empty quote payloads must not erase existing richer data.
+- Track `_pool.field_sources` so field-level provenance can be audited later.
 
 ## Commands
 

@@ -87,14 +87,49 @@ def nonempty(value: Any) -> bool:
     return value not in (None, "", [], {})
 
 
-def merge_tweet(existing: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
+def should_update_field(key: str, existing_value: Any, new_value: Any, merged: dict[str, Any]) -> bool:
+    if not nonempty(new_value):
+        return key not in merged
+    if key in {"text", "full_text"} and isinstance(existing_value, str) and isinstance(new_value, str):
+        if len(new_value.strip()) < len(existing_value.strip()):
+            return False
+    if key == "media_count":
+        try:
+            if int(existing_value or 0) > 0 and int(new_value or 0) == 0:
+                return False
+        except (TypeError, ValueError):
+            pass
+    if key == "is_quote" and existing_value is True and new_value is False and nonempty(merged.get("quote")):
+        return False
+    return True
+
+
+def merge_tweet(
+    existing: dict[str, Any],
+    item: dict[str, Any],
+    *,
+    mode: str,
+    source: str,
+    fetched_at: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     merged = {key: value for key, value in existing.items() if key != "_pool"}
+    existing_pool = existing.get("_pool", {})
+    if not isinstance(existing_pool, dict):
+        existing_pool = {}
+    field_sources = dict(existing_pool.get("field_sources", {}) or {})
     for key, value in item.items():
         if key == "_pool":
             continue
-        if nonempty(value) or key not in merged:
+        if should_update_field(key, merged.get(key), value, merged):
+            previous_value = merged.get(key)
             merged[key] = value
-    return merged
+            if key not in field_sources or previous_value != value:
+                field_sources[key] = {
+                    "source": source,
+                    "mode": mode,
+                    "updated_at": fetched_at or now_iso(),
+                }
+    return merged, field_sources
 
 
 def completeness_for(
@@ -116,6 +151,7 @@ def update_pool_meta(
     mode: str,
     source: str,
     fetched_at: str,
+    field_sources: dict[str, Any],
 ) -> dict[str, Any]:
     existing_pool = existing.get("_pool", {})
     if not isinstance(existing_pool, dict):
@@ -132,6 +168,7 @@ def update_pool_meta(
         "sources": sorted(sources),
         "modes": sorted(modes),
         "completeness": completeness_for(existing_pool, mode, item),
+        "field_sources": field_sources,
     }
 
 
@@ -149,13 +186,20 @@ def upsert_tweet(
     ensure_runtime(runtime)
     path = runtime / "tweets" / f"{tweet_id}.json"
     existing = read_json(path) if path.exists() else {}
-    merged = merge_tweet(existing, item)
+    merged, field_sources = merge_tweet(
+        existing,
+        item,
+        mode=mode,
+        source=source,
+        fetched_at=fetched_at,
+    )
     merged["_pool"] = update_pool_meta(
         existing,
         item,
         mode=mode,
         source=source,
         fetched_at=fetched_at,
+        field_sources=field_sources,
     )
     write_json(path, merged)
     upsert_author_from_tweet(merged, runtime, fetched_at=fetched_at)

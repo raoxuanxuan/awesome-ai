@@ -126,6 +126,85 @@ class TweetPoolTests(unittest.TestCase):
             self.assertIs(tweet["_pool"]["completeness"]["single"], True)
             self.assertEqual(tweet["_pool"]["sources"], ["fxtwitter", "mock"])
 
+    def test_ingest_records_field_provenance_for_updated_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / ".tweet-pool"
+            tweet_pool.ingest_payload(sample_payload("123"), runtime)
+
+            payload = sample_payload("123")
+            payload["mode"] = "single"
+            payload["source"] = "fxtwitter"
+            payload["fetched_at"] = "2026-06-23T11:00:00Z"
+            payload["items"][0]["full_text"] = "single mode canonical text"
+            tweet_pool.ingest_payload(payload, runtime)
+
+            tweet = json.loads((runtime / "tweets/123.json").read_text())
+            provenance = tweet["_pool"]["field_sources"]
+            self.assertEqual(provenance["full_text"]["source"], "fxtwitter")
+            self.assertEqual(provenance["full_text"]["mode"], "single")
+            self.assertEqual(provenance["full_text"]["updated_at"], "2026-06-23T11:00:00Z")
+            self.assertEqual(provenance["screen_name"]["source"], "mock")
+
+    def test_short_text_does_not_replace_longer_canonical_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / ".tweet-pool"
+            payload = sample_payload("123")
+            payload["mode"] = "single"
+            payload["source"] = "fxtwitter"
+            payload["items"][0]["full_text"] = "this is a much more complete canonical tweet text"
+            tweet_pool.ingest_payload(payload, runtime)
+
+            shorter = sample_payload("123")
+            shorter["mode"] = "timeline"
+            shorter["source"] = "syndication"
+            shorter["items"][0]["full_text"] = "short text"
+            shorter["items"][0]["text"] = "short text"
+            tweet_pool.ingest_payload(shorter, runtime)
+
+            tweet = json.loads((runtime / "tweets/123.json").read_text())
+            self.assertEqual(tweet["full_text"], "this is a much more complete canonical tweet text")
+            self.assertEqual(tweet["_pool"]["field_sources"]["full_text"]["source"], "fxtwitter")
+
+    def test_empty_media_payload_does_not_clear_existing_media(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / ".tweet-pool"
+            payload = sample_payload("123")
+            payload["items"][0]["media"] = [{"type": "photo", "url": "https://x.com/a.jpg"}]
+            payload["items"][0]["media_count"] = 1
+            tweet_pool.ingest_payload(payload, runtime)
+
+            empty_media = sample_payload("123")
+            empty_media["source"] = "syndication"
+            empty_media["items"][0]["media"] = []
+            empty_media["items"][0]["media_count"] = 0
+            tweet_pool.ingest_payload(empty_media, runtime)
+
+            tweet = json.loads((runtime / "tweets/123.json").read_text())
+            self.assertEqual(tweet["media"], [{"type": "photo", "url": "https://x.com/a.jpg"}])
+            self.assertEqual(tweet["media_count"], 1)
+
+    def test_empty_quote_payload_does_not_clear_existing_quote(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / ".tweet-pool"
+            payload = sample_payload("123")
+            payload["items"][0]["is_quote"] = True
+            payload["items"][0]["quote"] = {
+                "id": "99",
+                "screen_name": "other",
+                "full_text": "quoted context",
+            }
+            tweet_pool.ingest_payload(payload, runtime)
+
+            empty_quote = sample_payload("123")
+            empty_quote["source"] = "syndication"
+            empty_quote["items"][0]["is_quote"] = False
+            empty_quote["items"][0]["quote"] = None
+            tweet_pool.ingest_payload(empty_quote, runtime)
+
+            tweet = json.loads((runtime / "tweets/123.json").read_text())
+            self.assertIs(tweet["is_quote"], True)
+            self.assertEqual(tweet["quote"]["id"], "99")
+
     def test_consumer_status_is_separate_from_tweet_content(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp) / ".tweet-pool"
