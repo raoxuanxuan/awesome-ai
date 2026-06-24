@@ -88,8 +88,10 @@ python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/sabe
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode commit --pack-id <pack-id>
 python3 plugins/kol-tools/scripts/kol_ask.py TJ_Research --vault /Users/saberrao/vault/kol --question "怎么看 NVDA 和 AI capex?" --mode context-pack
 python3 plugins/kol-tools/scripts/kol_ask.py TJ_Research --vault /Users/saberrao/vault/kol --question "怎么看 NVDA 和 AI capex?" --mode run --pack-id <pack-id> --runner-command "<stdin-stdout-runner>"
+python3 plugins/kol-tools/scripts/kol_ask.py TJ_Research --vault /Users/saberrao/vault/kol --question "怎么看 NVDA 和 AI capex?" --mode run --pack-id <pack-id> --runner-command "python3 plugins/kol-tools/scripts/kol_codex_runner.py"
 python3 plugins/kol-tools/scripts/kol_debate.py --vault /Users/saberrao/vault/kol --kols TJ_Research,LinQingV --question "AI capex 是泡沫吗？" --rounds 2 --mode prompt-pack
 python3 plugins/kol-tools/scripts/kol_debate.py --vault /Users/saberrao/vault/kol --kols TJ_Research,LinQingV --question "AI capex 是泡沫吗？" --rounds 2 --mode run --pack-id <pack-id> --runner-command "<stdin-stdout-runner>"
+python3 plugins/kol-tools/scripts/kol_debate.py --vault /Users/saberrao/vault/kol --kols TJ_Research,LinQingV --question "AI capex 是泡沫吗？" --rounds 2 --mode run --pack-id <pack-id> --runner-command "python3 plugins/kol-tools/scripts/kol_claude_runner.py"
 ```
 
 `kol_distill.py --mode prompt-pack` writes only a review workspace under:
@@ -130,6 +132,18 @@ generated `prompt.md` with the runner of choice.
 `kol_ask.py --mode run` uses the same workspace, executes `prompt.md` through
 `--runner-command`, and writes `answer.md`. The runner must read stdin and write
 stdout. The manifest stores redacted runner metadata, not the full command.
+
+Bundled runner adapters:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_codex_runner.py
+python3 plugins/kol-tools/scripts/kol_claude_runner.py
+```
+
+`kol_codex_runner.py` calls `codex exec` in read-only, no-approval, ephemeral
+mode. `kol_claude_runner.py` calls `claude --print` with tools disabled and no
+session persistence. Both read prompt text from stdin and write the model answer
+to stdout.
 
 `kol_debate.py --mode prompt-pack` writes a multi-KOL debate workspace under:
 

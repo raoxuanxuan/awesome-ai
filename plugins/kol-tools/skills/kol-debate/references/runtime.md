@@ -30,6 +30,17 @@ python3 plugins/kol-tools/scripts/kol_debate.py \
   --runner-command "<stdin-stdout-runner>"
 ```
 
+Bundled runner choices:
+
+```bash
+--runner-command "python3 plugins/kol-tools/scripts/kol_codex_runner.py"
+--runner-command "python3 plugins/kol-tools/scripts/kol_claude_runner.py"
+```
+
+`kol_codex_runner.py` calls `codex exec -` with read-only sandboxing,
+`--ask-for-approval never`, and `--ephemeral`. `kol_claude_runner.py` calls
+`claude --print` with tools disabled and no session persistence.
+
 `--runner-command` is parsed with `shlex.split` and executed without a shell.
 Avoid putting secrets directly in command arguments; use environment variables
 or a wrapper script. The manifest records only the executable and argument count.
