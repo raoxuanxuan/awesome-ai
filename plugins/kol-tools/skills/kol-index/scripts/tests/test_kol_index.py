@@ -2,10 +2,12 @@ import json
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from kol_index import load_docs
+from kol_index import load_docs, main
 
 
 class KolIndexTests(unittest.TestCase):
@@ -46,6 +48,30 @@ class KolIndexTests(unittest.TestCase):
             self.assertEqual(source, str(raw))
             self.assertEqual(docs[0]["id"], "1")
             self.assertFalse(docs[0]["low_content"])
+
+    def test_main_requires_clean_corpus_by_default(self):
+        with tempfile.TemporaryDirectory() as td:
+            vault = Path(td)
+            raw = vault / "h" / "raw" / "tweets"
+            raw.mkdir(parents=True)
+            (raw / "1.md").write_text("---\nid: 1\n---\nraw", encoding="utf-8")
+
+            with redirect_stdout(StringIO()):
+                rc = main(["h", "--vault", str(vault), "--dry-run"])
+
+            self.assertEqual(rc, 2)
+
+    def test_legacy_raw_mode_allows_raw_fallback(self):
+        with tempfile.TemporaryDirectory() as td:
+            vault = Path(td)
+            raw = vault / "h" / "raw" / "tweets"
+            raw.mkdir(parents=True)
+            (raw / "1.md").write_text("---\nid: 1\n---\nraw content with enough words", encoding="utf-8")
+
+            with redirect_stdout(StringIO()):
+                rc = main(["h", "--vault", str(vault), "--dry-run", "--legacy-raw"])
+
+            self.assertEqual(rc, 0)
 
 
 if __name__ == "__main__":

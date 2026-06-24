@@ -25,12 +25,31 @@ class KolCleanTests(unittest.TestCase):
         self.assertTrue(item["routing"]["distill"])
         self.assertIn("substantive_reply_length", item["reasons"])
 
+    def test_reply_with_investment_semantics_is_kept(self):
+        item = classify_text("@abc 基本面没坏，真正的问题是交易太拥挤。", is_reply=True)
+        self.assertIn(item["quality"], {"high", "medium"})
+        self.assertTrue(item["routing"]["distill"])
+        self.assertIn("has_reasoning", item["reasons"])
+
+    def test_long_reply_without_signal_is_context_not_distill(self):
+        item = classify_text("@abc 我看了一下你前面说的那几条，整体感觉还需要再等等看。", is_reply=True)
+        self.assertEqual(item["quality"], "low")
+        self.assertFalse(item["routing"]["distill"])
+        self.assertTrue(item["routing"]["voice"])
+        self.assertIn("reply_without_durable_signal", item["reasons"])
+
     def test_ticker_reasoning_is_high_quality(self):
         item = classify_text("$NVDA PEG 1 倍不贵，因为未来三年 EPS 增速还在。")
         self.assertEqual(item["quality"], "high")
         self.assertTrue(item["routing"]["position"])
         self.assertIn("has_ticker", item["reasons"])
         self.assertIn("has_reasoning", item["reasons"])
+
+    def test_english_pe_keyword_requires_word_boundary(self):
+        item = classify_text("I hope this keeps improving over time.")
+        self.assertEqual(item["quality"], "low")
+        self.assertFalse(item["routing"]["distill"])
+        self.assertNotIn("has_method_keyword", item["reasons"])
 
     def test_raw_item_preserves_metadata_for_index(self):
         import tempfile

@@ -23,9 +23,14 @@ URL_ONLY_RE = re.compile(r"^\s*(https?://\S+\s*)+$")
 MENTION_ONLY_RE = re.compile(r"^\s*(@\w+[\s,，]*)+$")
 
 METHOD_KEYWORDS = (
-    "FPE", "FORWARD", "PE", "P/E", "PEG", "capex", "CAPEX", "ARR", "ROI",
     "估值", "降息", "加息", "仓位", "加仓", "减仓", "看多", "看空",
-    "左侧", "右侧", "证伪", "现金流", "财报", "guidance", "BETA",
+    "左侧", "右侧", "证伪", "现金流", "财报", "基本面", "预期差",
+    "边际", "定价", "订单", "利润", "收入", "成本", "周期", "赔率",
+    "胜率", "商业模式", "护城河",
+)
+METHOD_TERM_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:FPE|FORWARD|PE|P/E|PEG|CAPEX|ARR|ROI|GUIDANCE|BETA)(?![A-Za-z0-9_])",
+    re.IGNORECASE,
 )
 POSITION_KEYWORDS = (
     "买", "卖", "持有", "不碰", "减仓", "加仓", "做多", "做空",
@@ -34,6 +39,7 @@ POSITION_KEYWORDS = (
 REASONING_KEYWORDS = (
     "因为", "所以", "但是", "如果", "只要", "除非", "证伪", "反而",
     "意味着", "核心", "逻辑", "前提", "ROI", "现金流", "需求", "供给",
+    "关键", "问题", "风险", "兑现", "交易", "拥挤", "竞争", "份额",
 )
 TIMELINE_KEYWORDS = (
     "之前", "现在", "后来", "转向", "反转", "修正", "承认错", "卖飞",
@@ -99,7 +105,7 @@ def classify_text(text: str, is_reply: bool = False, is_quote: bool = False,
 
     has_ticker = bool(TICKER_RE.search(stripped))
     has_number = bool(NUMBER_RE.search(stripped))
-    has_method = any(k.lower() in stripped.lower() for k in METHOD_KEYWORDS)
+    has_method = bool(METHOD_TERM_RE.search(stripped)) or any(k in stripped for k in METHOD_KEYWORDS)
     has_position = any(k in stripped for k in POSITION_KEYWORDS)
     has_reasoning = any(k.lower() in stripped.lower() for k in REASONING_KEYWORDS)
     has_timeline = any(k in stripped for k in TIMELINE_KEYWORDS)
@@ -138,9 +144,9 @@ def classify_text(text: str, is_reply: bool = False, is_quote: bool = False,
     elif is_retweet:
         quality = "low" if signal_score else "noise"
         reasons.append("is_retweet")
-    elif is_reply and len(sub) < 20 and signal_score == 0:
-        quality = "noise"
-        reasons.append("short_social_reply")
+    elif is_reply and signal_score == 0:
+        quality = "noise" if len(sub) < 20 else "low"
+        reasons.append("short_social_reply" if len(sub) < 20 else "reply_without_durable_signal")
     elif is_reply and len(sub) >= 20:
         quality = "medium"
         reasons.append("substantive_reply_length")

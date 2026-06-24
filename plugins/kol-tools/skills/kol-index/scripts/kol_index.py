@@ -135,7 +135,7 @@ def doc_from_clean(item: dict[str, Any]) -> dict[str, Any]:
     return doc
 
 
-def load_docs(handle: str, vault: Path) -> tuple[list[dict[str, Any]], str]:
+def load_docs(handle: str, vault: Path, *, allow_raw: bool = True) -> tuple[list[dict[str, Any]], str]:
     wiki_dir = vault / handle / "wiki"
     clean_path = wiki_dir / ".clean_corpus.jsonl"
     if clean_path.exists():
@@ -146,6 +146,9 @@ def load_docs(handle: str, vault: Path) -> tuple[list[dict[str, Any]], str]:
                 if line.strip():
                     docs.append(doc_from_clean(json.loads(line)))
         return docs, str(clean_path)
+
+    if not allow_raw:
+        raise FileNotFoundError(f"clean corpus required for {handle}: {clean_path}")
 
     raw_dir = vault / handle / "raw" / "tweets"
     if not raw_dir.is_dir():
@@ -215,15 +218,20 @@ def write_outputs(vault: Path, handle: str, docs: list[dict[str, Any]], stats: d
     stats_path.write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build KOL ingest index.")
     parser.add_argument("handle")
     parser.add_argument("--vault", type=Path, default=DEFAULT_VAULT)
     parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--legacy-raw",
+        action="store_true",
+        help="allow fallback indexing directly from raw/tweets/*.md when clean corpus is missing",
+    )
+    args = parser.parse_args(argv)
 
     try:
-        docs, source = load_docs(args.handle, args.vault)
+        docs, source = load_docs(args.handle, args.vault, allow_raw=args.legacy_raw)
         docs.sort(key=lambda d: int(d["id"]), reverse=True)
         stats = build_stats(args.handle, docs, source)
         stats["status"] = "dry_run" if args.dry_run else "written"
