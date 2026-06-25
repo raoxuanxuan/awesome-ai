@@ -12,6 +12,8 @@ from typing import Iterable, Mapping
 
 
 ENV_BIN = "TWITTER_FETCH_BIN"
+ENV_TIMEOUT = "TWITTER_MONITOR_FETCH_TIMEOUT_SECONDS"
+DEFAULT_FETCH_TIMEOUT_SECONDS = 180
 RUNNER_RELATIVE_PATH = Path("skills/twitter-fetch/bin/twitter-fetch")
 
 
@@ -79,14 +81,32 @@ def resolve_twitter_fetch_bin(
     )
 
 
+def fetch_timeout_seconds(env: Mapping[str, str] | None = None) -> int:
+    env = env if env is not None else os.environ
+    raw = env.get(ENV_TIMEOUT)
+    if raw is None or raw == "":
+        return DEFAULT_FETCH_TIMEOUT_SECONDS
+    try:
+        timeout = int(raw)
+    except ValueError:
+        return DEFAULT_FETCH_TIMEOUT_SECONDS
+    return max(timeout, 1)
+
+
 def run_twitter_fetch(args: list[str]) -> dict:
     runner = resolve_twitter_fetch_bin()
-    completed = subprocess.run(
-        [str(runner), *args],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    timeout = fetch_timeout_seconds()
+    try:
+        completed = subprocess.run(
+            [str(runner), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        command = " ".join(str(part) for part in args)
+        raise RuntimeError(f"twitter-fetch timed out after {timeout}s: {command}") from exc
     if completed.returncode != 0:
         raise RuntimeError(
             "twitter-fetch failed "
