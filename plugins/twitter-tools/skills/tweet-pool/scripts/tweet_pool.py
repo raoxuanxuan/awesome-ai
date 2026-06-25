@@ -535,7 +535,11 @@ def window_payload(
     }
     if include_items:
         tweet_ids = snapshot.get("tweet_ids", []) if snapshot else []
-        payload["items"] = export_tweets(runtime, tweet_ids=[str(item) for item in tweet_ids])
+        payload["items"] = (
+            export_tweets(runtime, tweet_ids=[str(item) for item in tweet_ids])
+            if tweet_ids
+            else []
+        )
     return payload
 
 

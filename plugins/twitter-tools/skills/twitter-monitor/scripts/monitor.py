@@ -7,6 +7,9 @@ import argparse
 import json
 import os
 import re
+import shlex
+import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +24,9 @@ SHORT_TEXT_LIMIT = 40
 DEFAULT_INTERVAL_MINUTES = 60
 DEFAULT_MAX_SCAN_PER_USER = 50
 DEFAULT_WINDOW_GRACE_MINUTES = 10
+DEFAULT_NOTIFICATION_APPEND = Path.home() / ".codex/skills/notification-center/append.py"
+SUMMARY_LIMIT = 300
+SUMMARY_TIMEOUT_SECONDS = 20
 
 
 def now_iso() -> str:
@@ -91,6 +97,7 @@ def parse_config_subset(text: str) -> dict[str, Any]:
     config: dict[str, Any] = {"users": [], "settings": {}, "topics": [], "sinks": {}}
     section = ""
     current_topic: dict[str, Any] | None = None
+    current_sink: dict[str, Any] | None = None
     in_topic_users = False
     for raw_line in text.splitlines():
         line = raw_line.split("#", 1)[0].rstrip()
@@ -99,6 +106,7 @@ def parse_config_subset(text: str) -> dict[str, Any]:
         if not line.startswith(" "):
             section = line.rstrip(":")
             current_topic = None
+            current_sink = None
             in_topic_users = False
             continue
         stripped = line.strip()
@@ -120,6 +128,15 @@ def parse_config_subset(text: str) -> dict[str, Any]:
         if section == "settings" and ":" in stripped:
             key, value = stripped.split(":", 1)
             config["settings"][key.strip()] = parse_scalar(value)
+            continue
+        if section == "sinks":
+            if line.startswith("  ") and not line.startswith("    ") and stripped.endswith(":"):
+                sink_name = stripped[:-1].strip()
+                current_sink = config["sinks"].setdefault(sink_name, {})
+                continue
+            if current_sink is not None and ":" in stripped:
+                key, value = stripped.split(":", 1)
+                current_sink[key.strip()] = parse_scalar(value)
     return config
 
 
@@ -235,6 +252,223 @@ def skip_reason(item: dict[str, Any], settings: dict[str, Any]) -> str | None:
     return None
 
 
+def notification_enabled(config: dict[str, Any]) -> bool:
+    notification = ((config.get("sinks") or {}).get("notification") or {})
+    return bool(isinstance(notification, dict) and notification.get("enabled"))
+
+
+def notification_settings(config: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        return {}
+    notification = ((config.get("sinks") or {}).get("notification") or {})
+    return notification if isinstance(notification, dict) else {}
+
+
+def setting_int(settings: dict[str, Any], key: str, default: int, *, minimum: int = 1) -> int:
+    try:
+        raw = settings.get(key)
+        value = int(default if raw is None or raw == "" else raw)
+    except (TypeError, ValueError):
+        value = default
+    return max(value, minimum)
+
+
+def clean_summary(text: str, limit: int = SUMMARY_LIMIT) -> str:
+    compact = re.sub(r"\s+", " ", text or "").strip()
+    if len(compact) <= limit:
+        return compact
+    return compact[: max(0, limit - 3)].rstrip() + "..."
+
+
+def extract_text(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    return str(value.get("full_text") or value.get("text") or "").strip()
+
+
+def first_full_item(item: dict[str, Any], full_payload: dict[str, Any]) -> dict[str, Any]:
+    items = full_payload.get("items") if isinstance(full_payload, dict) else None
+    if isinstance(items, list) and items and isinstance(items[0], dict):
+        return items[0]
+    return item
+
+
+def notification_text(item: dict[str, Any], full_payload: dict[str, Any]) -> str:
+    full_item = first_full_item(item, full_payload)
+    parts = [extract_text(full_item) or extract_text(item)]
+    article = full_item.get("article") or item.get("article")
+    if isinstance(article, dict):
+        article_text = str(
+            article.get("title")
+            or article.get("headline")
+            or article.get("body")
+            or article.get("text")
+            or ""
+        ).strip()
+        if article_text:
+            parts.append(article_text)
+    thread = full_item.get("thread")
+    if isinstance(thread, dict):
+        for thread_item in thread.get("items") or []:
+            thread_text = extract_text(thread_item)
+            if thread_text and thread_text not in parts:
+                parts.append(thread_text)
+    return "\n\n".join(part for part in parts if part)
+
+
+def tweet_content_types(item: dict[str, Any], full_payload: dict[str, Any]) -> list[str]:
+    full_item = first_full_item(item, full_payload)
+    types = []
+    thread = full_item.get("thread")
+    if item.get("is_thread_part") or (isinstance(thread, dict) and bool(thread.get("items"))):
+        types.append("thread")
+    if item.get("is_quote") or full_item.get("is_quote") or item.get("quote") or full_item.get("quote"):
+        types.append("quote")
+    if item.get("is_article") or full_item.get("is_article") or item.get("article") or full_item.get("article"):
+        types.append("article")
+    return types or ["tweet"]
+
+
+def parse_summary_output(raw: str) -> str:
+    text = raw.strip()
+    if not text:
+        return ""
+    try:
+        loaded = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    if isinstance(loaded, dict):
+        return str(loaded.get("summary") or loaded.get("text") or "").strip()
+    return text
+
+
+def run_summary_command(
+    command: str,
+    payload: dict[str, Any],
+    *,
+    timeout_seconds: int = SUMMARY_TIMEOUT_SECONDS,
+) -> str:
+    if not command.strip():
+        return ""
+    proc = subprocess.run(
+        shlex.split(command),
+        input=json.dumps(payload, ensure_ascii=False) + "\n",
+        capture_output=True,
+        text=True,
+        timeout=timeout_seconds,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "summary command failed")
+    return parse_summary_output(proc.stdout)
+
+
+def build_notification_summary(
+    username: str,
+    item: dict[str, Any],
+    full_payload: dict[str, Any],
+    config: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    settings = notification_settings(config)
+    direct_chars = setting_int(settings, "direct_chars", SUMMARY_LIMIT)
+    summary_chars = setting_int(settings, "summary_chars", SUMMARY_LIMIT)
+    text = notification_text(item, full_payload)
+    compact = clean_summary(text, limit=max(len(text), 1))
+    if len(compact) <= direct_chars:
+        return compact, {"summary_source": "direct"}
+
+    command = str(settings.get("summary_command") or "").strip()
+    if command:
+        try:
+            content_types = tweet_content_types(item, full_payload)
+            summary = run_summary_command(
+                command,
+                {
+                    "username": username,
+                    "tweet_id": str(item.get("id") or first_full_item(item, full_payload).get("id") or ""),
+                    "url": str(item.get("url") or first_full_item(item, full_payload).get("url") or ""),
+                    "types": content_types,
+                    "max_chars": summary_chars,
+                    "text": text,
+                    "item": first_full_item(item, full_payload),
+                },
+                timeout_seconds=setting_int(
+                    settings,
+                    "summary_timeout_seconds",
+                    SUMMARY_TIMEOUT_SECONDS,
+                ),
+            )
+            summary = clean_summary(summary, limit=summary_chars)
+            if summary:
+                return summary, {"summary_source": "llm"}
+        except Exception as exc:
+            return clean_summary(text, limit=summary_chars), {
+                "summary_source": "fallback",
+                "summary_error": str(exc),
+            }
+
+    return clean_summary(text, limit=summary_chars), {"summary_source": "fallback"}
+
+
+def build_notification_event(
+    username: str,
+    item: dict[str, Any],
+    full_payload: dict[str, Any],
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    full_item = first_full_item(item, full_payload)
+    tweet_id = str(item.get("id") or full_item.get("id") or "")
+    url = str(item.get("url") or full_item.get("url") or "")
+    author = str(
+        full_item.get("author")
+        or item.get("author")
+        or full_item.get("screen_name")
+        or item.get("screen_name")
+        or username
+    ).strip()
+    content_types = tweet_content_types(item, full_payload)
+    summary, summary_meta = build_notification_summary(username, item, full_payload, config)
+    return {
+        "source": "twitter-monitor",
+        "level": "alert",
+        "title": author,
+        "summary": summary,
+        "dedupe_key": f"tweet:{tweet_id}",
+        "links": [{"label": url, "url": url}] if url else [],
+        "meta": {
+            "tweet_id": tweet_id,
+            "username": username,
+            "types": content_types,
+            "display": {"hide_source_prefix": True, "hide_level": True},
+            **summary_meta,
+        },
+        "targets": ["feishu"],
+    }
+
+
+def notification_append_path(env: dict[str, str] | None = None) -> Path:
+    env = os.environ if env is None else env
+    override = env.get("NOTIFICATION_CENTER_APPEND")
+    if override:
+        return Path(override).expanduser()
+    return DEFAULT_NOTIFICATION_APPEND
+
+
+def append_notification_event(event: dict[str, Any]) -> dict[str, Any]:
+    append_path = notification_append_path()
+    if not append_path.exists():
+        raise FileNotFoundError(f"notification append script missing: {append_path}")
+    proc = subprocess.run(
+        [sys.executable, str(append_path), "--stdin"],
+        input=json.dumps(event, ensure_ascii=False) + "\n",
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or proc.stdout.strip() or "notification append failed")
+    return json.loads(proc.stdout)
+
+
 def mark_item(
     user_entry: dict[str, Any],
     tweet_id: str,
@@ -274,6 +508,7 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
     limit = scan_limit(settings)
     expand_thread = bool(settings.get("expand_thread", True))
     mark_skipped = bool(settings.get("mark_skipped_as_seen", True))
+    notify = notification_enabled(config)
     user_entry = user_state(state, username)
     now = current_time()
     window_start, window_end, grace_minutes = compute_closed_window(settings, now)
@@ -284,6 +519,8 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
         "already_seen": 0,
         "skipped": 0,
         "fetched": 0,
+        "notified": 0,
+        "notification_failed": 0,
         "failed": 0,
         "interval_minutes": setting_minutes(
             settings,
@@ -349,6 +586,16 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
                 error=str(exc),
             )
             continue
+        outputs = {"tweet_pool": True}
+        if notify:
+            try:
+                append_notification_event(build_notification_event(username, item, full_payload, config))
+                report["notified"] += 1
+                outputs["notification"] = True
+            except Exception as exc:
+                report["notification_failed"] += 1
+                outputs["notification"] = False
+                outputs["notification_error"] = str(exc)
         report["fetched"] += 1
         mark_item(
             user_entry,
@@ -356,7 +603,7 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
             "fetched",
             source_url=str(item.get("url") or ""),
             created_at=str(item.get("created_at") or ""),
-            outputs={"tweet_pool": True},
+            outputs=outputs,
         )
     user_entry["last_success_at"] = format_iso(now)
     return report

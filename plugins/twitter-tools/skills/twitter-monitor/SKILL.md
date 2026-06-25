@@ -1,11 +1,11 @@
 ---
 name: twitter-monitor
-description: Use when Codex needs to monitor configured X/Twitter users for new tweets, articles, or quoted posts, filter low-value items, orchestrate twitter-fetch and twitter-media-fetch, and hand normalized content to content-to-obsidian. Does not write GitHub Pages or perform KOL history backfill.
+description: Use when Codex needs to monitor configured X/Twitter users for new tweets, articles, or quoted posts, filter low-value items, orchestrate twitter-fetch and tweet-pool, and queue minimal review notifications through notification-center. Does not write GitHub Pages or perform KOL history backfill.
 ---
 
 # Twitter Monitor
 
-`twitter-monitor` is the stateful upper-layer monitor for X/Twitter. It detects new content from configured users, filters low-value posts, calls `twitter-fetch` and `twitter-media-fetch`, maps results to Content JSON, and delegates Obsidian writes to `content-to-obsidian`.
+`twitter-monitor` is the stateful upper-layer monitor for X/Twitter. It detects new content from configured users, filters low-value posts, calls `twitter-fetch`, caches normalized results in `tweet-pool`, and queues minimal review notifications through `notification-center`.
 
 It does not implement X/Twitter providers, download media internals, render Markdown, write GitHub Pages, or backfill KOL raw archives.
 
@@ -17,8 +17,8 @@ twitter-monitor
   -> twitter-fetch timeline on window cache miss
   -> tweet-pool window put
   -> twitter-fetch single --include-thread
-  -> twitter-media-fetch download
-  -> content-to-obsidian
+  -> tweet-pool ingest
+  -> notification-center append
 ```
 
 Layer ownership:
@@ -27,9 +27,10 @@ Layer ownership:
 | --- | --- | --- |
 | `twitter-fetch` | X/Twitter single, timeline, thread, replies, history JSON/JSONL | Markdown, media download, state, vault writes |
 | `tweet-pool` | Local normalized fetch cache keyed by tweet ID, author cache, timeline observations, timeline window snapshots | Scheduling, quality decisions, Obsidian writes, KOL ingest decisions |
-| `twitter-media-fetch` | Download media from `twitter-fetch` JSON into caller-provided asset dir | Tweet fetching, Markdown, state |
-| `content-to-obsidian` | Vault config check, vault selection, Markdown rendering, Obsidian writes | Twitter fetching, monitor state |
-| `twitter-monitor` | Config, scheduling workflow, new-item detection, filtering, orchestration, monitor state | Provider parsing, media internals, Markdown templates, GitHub Pages |
+| `twitter-media-fetch` | Future optional media download from `twitter-fetch` JSON into caller-provided asset dir | Tweet fetching, Markdown, state |
+| `content-to-obsidian` | Future/manual vault writing after the user decides a tweet is worth saving | Twitter fetching, monitor state |
+| `notification-center` | Local event queue, Feishu dispatch, quiet-hour and dedupe handling | Tweet fetching, quality filtering, archive decisions |
+| `twitter-monitor` | Config, scheduling workflow, new-item detection, filtering, orchestration, monitor state, notification event production | Provider parsing, media internals, Markdown templates, GitHub Pages |
 
 ## Runtime
 
@@ -112,8 +113,14 @@ settings:
   mark_skipped_as_seen: true
 
 sinks:
-  obsidian:
+  notification:
     enabled: true
+    direct_chars: 300
+    summary_chars: 300
+    summary_timeout_seconds: 20
+    summary_command: "python3 /Users/saberrao/.codex/plugins/cache/awesome-ai/twitter-tools/0.3.0/skills/twitter-monitor/scripts/summarize_tweet.py"
+  obsidian:
+    enabled: false
     prompt_prefix: "保存到 AI"
 ```
 
@@ -168,23 +175,26 @@ always the standard envelope:
 7. Fetch complete content for each candidate.
    - Use `twitter-fetch single --url <url> --include-thread --pretty`.
    - If this fails, mark retryable failure and do not write outputs.
-8. Download media when enabled.
-   - Use `twitter-media-fetch download --input <twitter-json> --output-dir <asset-dir> --prefix <slug> --pretty`.
-   - A partial media failure should not discard text content; report failed media.
-9. Map to Content JSON.
-   - Follow `content-to-obsidian/references/content-json.md`.
-   - Preserve URL, author, created time, text, article body, thread sections, quote tweet references, stats, and media metadata.
-10. Save to Obsidian.
-   - Invoke `content-to-obsidian` with Content JSON, media manifest, and a prompt such as `保存到 AI: <url>`.
-   - Let `content-to-obsidian` choose the vault and enforce `~/.obsidian-tools/vaults.json`.
-   - Do not render Markdown directly in monitor.
-11. Update state only after outputs finish.
-   - `saved`: content was written to Obsidian.
-   - `fetched`: content was fetched and written to `tweet-pool`, but no sink has persisted it yet.
+8. Append a notification event when enabled.
+   - Use `notification-center/append.py --stdin`.
+   - The Feishu-facing card content is intentionally minimal:
+     - author name
+     - tweet summary
+     - tweet link
+     - content type: `thread`, `quote`, `article`, or plain `tweet`
+   - Summary policy:
+     - If cleaned content length is within `sinks.notification.direct_chars`, show the content directly.
+     - If content is longer, call `sinks.notification.summary_command` with JSON on stdin and use the returned summary.
+     - If no command is configured or the command fails, fall back to local truncation at `sinks.notification.summary_chars`.
+     - The bundled `scripts/summarize_tweet.py` uses an OpenAI-compatible chat completions API. It reads `TWITTER_MONITOR_LLM_API_KEY`, `DEEPSEEK_API_KEY`, or `OPENAI_API_KEY` from the environment and never stores keys in config.
+   - Notification append is best-effort; a local notification failure should be reported but should not corrupt tweet-pool ingest state.
+9. Update state only after outputs finish.
+   - `saved`: future/manual state for content written to Obsidian.
+   - `fetched`: content was fetched and written to `tweet-pool`; notification append result is recorded in outputs.
    - `skipped`: low-value content intentionally ignored.
    - `failed`: retryable failure, with error message.
    - Update user-level `last_success_at` only after the user run completes.
-12. Print a concise run report.
+10. Print a concise run report.
 
 Current runner:
 
@@ -195,8 +205,9 @@ twitter-monitor run --pretty
 The current runner implements config loading, state loading, closed hourly
 window calculation, finalized window snapshot reuse, timeline scan on cache miss,
 tweet-pool ingest, state dedupe, low-value filtering, `single --include-thread`
-completion, and state updates. Completed candidates are marked `fetched`, not
-`saved`, because the Obsidian sink write is not implemented in the runner yet.
+completion, notification-center append, and state updates. Completed candidates
+are marked `fetched`; notification delivery status is recorded under item
+`outputs.notification`.
 
 ## State Model
 
@@ -246,7 +257,7 @@ Status values:
 - Do not depend on disabled `tweet-to-obsidian` or `x-tweet-fetcher`.
 - Do not import local `~/.codex/skills/twitter-fetch`; resolve and run the installed `twitter-fetch` runner.
 - Do not backfill KOL raw archives here. KOL history belongs in a future `kol-ingest` or `kol-twin` workflow.
-- Current runner does not write Obsidian yet; it marks completed candidates as `fetched`, not `saved`.
+- Current runner does not write Obsidian; it marks completed candidates as `fetched`, not `saved`.
 
 ## Runner Resolution
 
@@ -276,7 +287,5 @@ If none is found, timeline output still works but prints a best-effort warning u
 | User timeline fetch fails | Record user-level error and continue other users |
 | Tweet-pool ingest fails | Print warning; keep monitor output and state flow unchanged |
 | Single tweet fetch fails | Mark item `failed`; retry later |
-| Media download partially fails | Save text content and report failed media |
-| Obsidian config missing | Stop before writing; let `content-to-obsidian` create/check config |
-| Obsidian write fails | Mark item `failed`; retry later |
+| Notification append fails | Increment `notification_failed`, keep the tweet marked `fetched`, and record the local error under outputs |
 | State corrupt | Stop and ask before replacing |

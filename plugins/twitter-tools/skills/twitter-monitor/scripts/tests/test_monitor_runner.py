@@ -281,6 +281,197 @@ settings:
             self.assertEqual(user_state["items"]["201"]["created_at"], "2026-06-24T09:30:00Z")
             self.assertNotIn("202", user_state["items"])
 
+    def test_build_notification_event_uses_minimal_card_fields(self):
+        item = tweet(
+            "301",
+            text="A technical observation about model training and product systems.",
+            author="Andrej Karpathy",
+            screen_name="karpathy",
+            is_quote=True,
+            quote={"id": "99", "screen_name": "openai"},
+            is_article=True,
+            article={"title": "Longform note"},
+        )
+        full_payload = {
+            **timeline_payload(item),
+            "mode": "single",
+            "items": [
+                {
+                    **item,
+                    "thread": {"ok": True, "items": [tweet("302")]},
+                }
+            ],
+        }
+
+        event = monitor.build_notification_event("karpathy", item, full_payload)
+
+        self.assertEqual(event["source"], "twitter-monitor")
+        self.assertEqual(event["level"], "alert")
+        self.assertEqual(event["title"], "Andrej Karpathy")
+        self.assertEqual(event["dedupe_key"], "tweet:301")
+        self.assertEqual(event["links"], [{"label": item["url"], "url": item["url"]}])
+        self.assertNotIn("Type:", event["summary"])
+        self.assertIn("A technical observation", event["summary"])
+        self.assertLessEqual(len(event["summary"]), 300)
+        self.assertEqual(
+            event["meta"],
+            {
+                "tweet_id": "301",
+                "username": "karpathy",
+                "types": ["thread", "quote", "article"],
+                "display": {"hide_source_prefix": True, "hide_level": True},
+                "summary_source": "direct",
+            },
+        )
+
+    def test_short_notification_summary_uses_cleaned_text_without_llm(self):
+        item = tweet("302", text="Short text\nwith spacing.")
+        config = {"sinks": {"notification": {"direct_chars": 80, "summary_chars": 40}}}
+
+        with mock.patch.object(monitor, "run_summary_command") as summarize:
+            event = monitor.build_notification_event("karpathy", item, timeline_payload(item), config)
+
+        summarize.assert_not_called()
+        self.assertEqual(event["summary"], "Short text with spacing.")
+        self.assertEqual(event["meta"]["summary_source"], "direct")
+
+    def test_long_notification_summary_uses_llm_command(self):
+        item = tweet("303", text="Long observation. " * 30)
+        config = {
+            "sinks": {
+                "notification": {
+                    "direct_chars": 80,
+                    "summary_chars": 120,
+                    "summary_command": "/mock/summarizer",
+                }
+            }
+        }
+
+        with mock.patch.object(monitor, "run_summary_command", return_value="LLM summary.") as summarize:
+            event = monitor.build_notification_event("karpathy", item, timeline_payload(item), config)
+
+        summarize.assert_called_once()
+        self.assertEqual(event["summary"], "LLM summary.")
+        self.assertEqual(event["meta"]["summary_source"], "llm")
+
+    def test_long_notification_summary_falls_back_when_llm_fails(self):
+        item = tweet("304", text="Long observation. " * 30)
+        config = {
+            "sinks": {
+                "notification": {
+                    "direct_chars": 80,
+                    "summary_chars": 60,
+                    "summary_command": "/mock/summarizer",
+                }
+            }
+        }
+
+        with mock.patch.object(monitor, "run_summary_command", side_effect=RuntimeError("boom")):
+            event = monitor.build_notification_event("karpathy", item, timeline_payload(item), config)
+
+        self.assertLessEqual(len(event["summary"]), 60)
+        self.assertTrue(event["summary"].endswith("..."))
+        self.assertEqual(event["meta"]["summary_source"], "fallback")
+        self.assertEqual(event["meta"]["summary_error"], "boom")
+
+    def test_run_appends_notification_after_successful_fetch_when_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / ".twitter-monitor"
+            runtime.mkdir()
+            (runtime / "config.yaml").write_text(
+                """
+users:
+  - username: "karpathy"
+
+settings:
+  interval_minutes: 60
+  window_grace_minutes: 0
+  max_scan_per_user: 20
+  expand_thread: true
+
+sinks:
+  notification:
+    enabled: true
+""",
+                encoding="utf-8",
+            )
+            useful = tweet("401", author="Andrej Karpathy", screen_name="karpathy")
+            full = {
+                **timeline_payload(useful),
+                "mode": "single",
+                "input": {"url": useful["url"], "context": "thread"},
+            }
+
+            def fake_fetch(args):
+                if args[0] == "single":
+                    return full
+                raise AssertionError(args)
+
+            with mock.patch.object(monitor, "now_iso", return_value="2026-06-23T10:00:00Z"):
+                with mock.patch.object(monitor, "run_twitter_fetch", side_effect=fake_fetch):
+                    with mock.patch.object(monitor, "ingest_tweet_pool"):
+                        with mock.patch.object(
+                            monitor,
+                            "fetch_timeline_window",
+                            return_value=window_payload(useful),
+                        ):
+                            with mock.patch.object(monitor, "append_notification_event") as append:
+                                report = monitor.run_monitor(runtime)
+
+            append.assert_called_once()
+            event = append.call_args.args[0]
+            self.assertEqual(event["title"], "Andrej Karpathy")
+            self.assertEqual(event["links"], [{"label": useful["url"], "url": useful["url"]}])
+            self.assertEqual(report["users"]["karpathy"]["notified"], 1)
+
+    def test_run_passes_config_to_notification_builder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / ".twitter-monitor"
+            runtime.mkdir()
+            (runtime / "config.yaml").write_text(
+                """
+users:
+  - username: "karpathy"
+
+settings:
+  interval_minutes: 60
+  window_grace_minutes: 0
+  max_scan_per_user: 20
+
+sinks:
+  notification:
+    enabled: true
+    direct_chars: 80
+    summary_command: "/mock/summarizer"
+""",
+                encoding="utf-8",
+            )
+            useful = tweet("402")
+            full = {**timeline_payload(useful), "mode": "single"}
+
+            def fake_fetch(args):
+                if args[0] == "single":
+                    return full
+                raise AssertionError(args)
+
+            with mock.patch.object(monitor, "now_iso", return_value="2026-06-23T10:00:00Z"):
+                with mock.patch.object(monitor, "run_twitter_fetch", side_effect=fake_fetch):
+                    with mock.patch.object(monitor, "ingest_tweet_pool"):
+                        with mock.patch.object(
+                            monitor,
+                            "fetch_timeline_window",
+                            return_value=window_payload(useful),
+                        ):
+                            with mock.patch.object(
+                                monitor,
+                                "build_notification_event",
+                                return_value={"source": "twitter-monitor", "title": "x"},
+                            ) as builder:
+                                with mock.patch.object(monitor, "append_notification_event"):
+                                    monitor.run_monitor(runtime)
+
+            self.assertEqual(builder.call_args.args[3]["sinks"]["notification"]["direct_chars"], 80)
+
 
 if __name__ == "__main__":
     unittest.main()

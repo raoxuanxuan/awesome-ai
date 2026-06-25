@@ -485,6 +485,64 @@ class TweetPoolTests(unittest.TestCase):
             self.assertEqual(summary["snapshot"]["status"], "finalized")
             self.assertEqual([item["id"] for item in summary["items"]], ["123"])
 
+    def test_window_get_keeps_empty_finalized_snapshot_empty_with_cached_pool_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / ".tweet-pool"
+            tweet_pool.ingest_payload(sample_payload("999"), runtime)
+
+            payload = sample_payload("123")
+            payload["items"] = []
+            payload_path = Path(tmp) / "payload.json"
+            payload_path.write_text(json.dumps(payload), encoding="utf-8")
+            with redirect_stdout(StringIO()):
+                tweet_pool.main(
+                    [
+                        "--runtime",
+                        str(runtime),
+                        "window",
+                        "put",
+                        "--user",
+                        "karpathy",
+                        "--window-start",
+                        "2026-06-23T09:00:00Z",
+                        "--window-end",
+                        "2026-06-23T10:00:00Z",
+                        "--input",
+                        str(payload_path),
+                        "--limit",
+                        "50",
+                        "--grace-minutes",
+                        "10",
+                        "--now",
+                        "2026-06-23T10:11:00Z",
+                    ]
+                )
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = tweet_pool.main(
+                    [
+                        "--runtime",
+                        str(runtime),
+                        "window",
+                        "get",
+                        "--user",
+                        "karpathy",
+                        "--window-start",
+                        "2026-06-23T09:00:00Z",
+                        "--window-end",
+                        "2026-06-23T10:00:00Z",
+                        "--include-items",
+                    ]
+                )
+
+            self.assertEqual(rc, 0, out.getvalue())
+            summary = json.loads(out.getvalue())
+            self.assertIs(summary["found"], True)
+            self.assertEqual(summary["snapshot"]["status"], "finalized")
+            self.assertEqual(summary["snapshot"]["tweet_ids"], [])
+            self.assertEqual(summary["items"], [])
+
     def test_runner_invokes_cli(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp) / ".tweet-pool"

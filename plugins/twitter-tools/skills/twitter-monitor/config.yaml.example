@@ -44,6 +44,12 @@ settings:
   mark_skipped_as_seen: true
 
 sinks:
-  obsidian:
+  notification:
     enabled: true
+    direct_chars: 300
+    summary_chars: 300
+    summary_timeout_seconds: 20
+    summary_command: "python3 /Users/saberrao/.codex/plugins/cache/awesome-ai/twitter-tools/0.3.0/skills/twitter-monitor/scripts/summarize_tweet.py"
+  obsidian:
+    enabled: false
     prompt_prefix: "保存到 AI"
