@@ -443,6 +443,43 @@ python3 /Users/saberrao/.codex/skills/notification-center/dispatch.py --dry-run
 python3 /Users/saberrao/.codex/skills/notification-center/dispatch.py
 ```
 
+如果用户属于 `topics` 中的某个 topic，monitor 会把 topic 写入通知事件：
+
+```json
+{
+  "meta": {
+    "username": "karpathy",
+    "topic": "AI"
+  },
+  "targets": ["feishu"]
+}
+```
+
+topic 到 webhook 的路由由 Notification Center 的 `feishu.json` 控制。一个飞书 bot 可以接多个 topic，例如：
+
+```json
+{
+  "default": {
+    "webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/default",
+    "secret": "SEC..."
+  },
+  "bots": {
+    "tech": {
+      "webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/tech",
+      "secret": "SEC...",
+      "topics": ["AI", "ClaudeCode"]
+    },
+    "invest": {
+      "webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/invest",
+      "secret": "SEC...",
+      "topics": ["invest"]
+    }
+  }
+}
+```
+
+飞书 webhook 和 secret 是本机私密配置，不属于 `twitter-tools` plugin，也不要提交到 git。
+
 卡片展示保持最小：
 
 ```text

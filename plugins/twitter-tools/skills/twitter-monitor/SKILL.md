@@ -182,6 +182,8 @@ always the standard envelope:
      - tweet summary
      - tweet link
      - content type: `thread`, `quote`, `article`, or plain `tweet`
+   - The notification event includes `meta.topic` when the monitored user belongs to a configured topic.
+   - Keep `targets: ["feishu"]`; topic-to-webhook routing belongs to `notification-center`, where one Feishu bot can serve multiple topics.
    - Summary policy:
      - If cleaned content length is within `sinks.notification.direct_chars`, show the content directly.
      - If content is longer, call `sinks.notification.summary_command` with JSON on stdin and use the returned summary.

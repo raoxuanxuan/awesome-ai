@@ -161,6 +161,26 @@ def configured_users(config: dict[str, Any]) -> list[str]:
     return unique
 
 
+def topic_by_user(config: dict[str, Any]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for topic in config.get("topics") or []:
+        if not isinstance(topic, dict):
+            continue
+        topic_name = str(topic.get("name") or "").strip()
+        if not topic_name:
+            continue
+        for username in topic.get("users") or []:
+            key = str(username).lstrip("@").lower()
+            mapping.setdefault(key, topic_name)
+    return mapping
+
+
+def topic_for_user(username: str, config: dict[str, Any] | None) -> str:
+    if not isinstance(config, dict):
+        return ""
+    return topic_by_user(config).get(username.lstrip("@").lower(), "")
+
+
 def load_state(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"version": 3, "users": {}}
@@ -427,6 +447,16 @@ def build_notification_event(
     ).strip()
     content_types = tweet_content_types(item, full_payload)
     summary, summary_meta = build_notification_summary(username, item, full_payload, config)
+    topic = topic_for_user(username, config)
+    meta = {
+        "tweet_id": tweet_id,
+        "username": username,
+        "types": content_types,
+        "display": {"hide_source_prefix": True, "hide_level": True},
+        **summary_meta,
+    }
+    if topic:
+        meta["topic"] = topic
     return {
         "source": "twitter-monitor",
         "level": "alert",
@@ -434,13 +464,7 @@ def build_notification_event(
         "summary": summary,
         "dedupe_key": f"tweet:{tweet_id}",
         "links": [{"label": url, "url": url}] if url else [],
-        "meta": {
-            "tweet_id": tweet_id,
-            "username": username,
-            "types": content_types,
-            "display": {"hide_source_prefix": True, "hide_level": True},
-            **summary_meta,
-        },
+        "meta": meta,
         "targets": ["feishu"],
     }
 

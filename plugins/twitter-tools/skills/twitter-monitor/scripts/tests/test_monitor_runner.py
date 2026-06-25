@@ -85,6 +85,18 @@ class MonitorRunnerTests(unittest.TestCase):
             ["karpathy", "omarsar0", "Money_or_Life_X"],
         )
 
+    def test_topic_for_user_uses_first_topic_membership(self):
+        config = {
+            "topics": [
+                {"name": "AI", "users": ["@karpathy"]},
+                {"name": "invest", "users": ["Money_or_Life_X"]},
+            ]
+        }
+
+        self.assertEqual(monitor.topic_for_user("karpathy", config), "AI")
+        self.assertEqual(monitor.topic_for_user("@Money_or_Life_X", config), "invest")
+        self.assertEqual(monitor.topic_for_user("unknown", config), "")
+
     def test_run_fetches_timeline_filters_items_fetches_single_and_updates_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp) / ".twitter-monitor"
@@ -334,6 +346,15 @@ settings:
         summarize.assert_not_called()
         self.assertEqual(event["summary"], "Short text with spacing.")
         self.assertEqual(event["meta"]["summary_source"], "direct")
+
+    def test_notification_event_includes_topic_when_configured(self):
+        item = tweet("305")
+        config = {"topics": [{"name": "AI", "users": ["karpathy"]}]}
+
+        event = monitor.build_notification_event("karpathy", item, timeline_payload(item), config)
+
+        self.assertEqual(event["meta"]["topic"], "AI")
+        self.assertEqual(event["targets"], ["feishu"])
 
     def test_long_notification_summary_uses_llm_command(self):
         item = tweet("303", text="Long observation. " * 30)
