@@ -9,10 +9,10 @@
   "interface": {
     "displayName": "Twitter Tools",
     "shortDescription": "Fetch, download, and monitor X/Twitter.",
-    "longDescription": "Twitter Tools provides X/Twitter data, cache, media, and monitor skills for upper-layer archive, translation, and knowledge-ingestion workflows. twitter-fetch emits JSON or JSONL; tweet-pool caches normalized fetch results without sharing business state; twitter-media-fetch downloads referenced media and emits a manifest; twitter-monitor orchestrates configured user monitoring and delegates Obsidian writes to content-to-obsidian.",
+    "longDescription": "Twitter Tools provides X/Twitter data, cache, media, and monitor skills for upper-layer archive, translation, notification, and knowledge-ingestion workflows. twitter-fetch emits JSON or JSONL; tweet-pool caches normalized fetch results without sharing business state; twitter-media-fetch downloads referenced media and emits a manifest; twitter-monitor orchestrates configured user monitoring, reuses tweet-pool window snapshots, enriches candidates with twitter-fetch single --include-thread, and queues minimal review notifications through notification-center.",
     "developerName": "saberrao",
     "category": "Productivity",
-    "capabilities": ["Fetch single tweets", "Fetch timelines", "Fetch threads", "Fetch user history", "Cache normalized tweets", "Download tweet media", "Monitor configured users"],
+    "capabilities": ["Fetch single tweets", "Fetch timelines", "Fetch threads", "Fetch user history", "Cache normalized tweets", "Download tweet media", "Monitor configured users", "Queue review notifications"],
     "defaultPrompt": "Fetch or monitor this X/Twitter content and return normalized output."
   }
 }

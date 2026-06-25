@@ -5,9 +5,9 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 - `twitter-fetch`：只负责读取和规范化 X/Twitter 数据，输出 JSON 或 JSONL。
 - `tweet-pool`：把 `twitter-fetch` 的 normalized item 按 tweet ID 缓存起来，让多个上层 workflow 复用抓取结果，但不共享业务状态。
 - `twitter-media-fetch`：读取 `twitter-fetch` JSON 中引用的媒体 URL，下载到调用方指定目录，并输出 manifest JSON。
-- `twitter-monitor`：状态化监控编排器，定时检查配置用户的新内容，过滤、补全、下载媒体，并把标准内容交给 `content-to-obsidian`。
+- `twitter-monitor`：状态化监控编排器，定时检查配置用户的新内容，过滤、补全、写入 `tweet-pool`，并把最小审阅通知交给 `notification-center`。
 
-它适合给上层工作流当 Twitter/X 能力基座，例如保存到 Obsidian、监控用户、翻译推文、生成摘要等。但抓取、媒体下载、监控、写入仍然分层。
+它适合给上层工作流当 Twitter/X 能力基座，例如保存到 Obsidian、监控用户、翻译推文、生成摘要、飞书审阅通知等。但抓取、缓存、媒体下载、监控、通知、写入仍然分层。
 
 ## 能做什么
 
@@ -52,7 +52,9 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 | 时间窗口 | 每轮检查上一个已关闭 interval，`window_grace_minutes` 控制整点后延迟确认 |
 | 新内容过滤 | 根据 state 去重，过滤低价值短推和纯转推 |
 | 内容补全 | 对候选内容调用 `twitter-fetch single --include-thread` |
-| Obsidian 归档 | 待接入；当前 runner 只标记 `fetched`，不会标记 `saved` |
+| 通知中心 | 对候选内容构造最小 review event，并通过 `notification-center/append.py --stdin` 写入本地通知队列 |
+| 飞书展示 | 通知卡片只展示作者、正文摘要、推文链接；长内容可调用 LLM 摘要，失败时本地截断兜底 |
+| Obsidian 归档 | 当前不自动写入；runner 只标记 `fetched`，不会标记 `saved` |
 
 它不会做：
 
@@ -61,9 +63,9 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 - `tweet-pool` 不做统一业务队列，不做全局低质量过滤，不把一个 consumer 的 skip/save/ingest 状态共享给另一个 consumer。
 - `twitter-monitor` 写入 `tweet-pool` 只是 best-effort fetch cache；pool 不可用时 monitor 仍继续输出。
 - `twitter-monitor` 不再维护旧版 timeline JSON 输出；`--json` 参数只是 deprecated no-op。
-- `twitter-monitor run` 当前只完成 timeline 抓取、过滤、single 补全和 tweet-pool 缓存；还没有接入 Obsidian sink。
+- `twitter-monitor run` 当前完成 timeline 抓取、过滤、single 补全、tweet-pool 缓存和 notification-center append；不自动写 Obsidian。
 - `twitter-monitor` 不写 GitHub Pages，不做 KOL raw history backfill。
-- 不做推送通知。
+- `twitter-monitor` 不直接请求飞书 webhook；飞书签名、安静时间、去重和实际发送属于 `notification-center`。
 - `twitter-fetch` 不下载图片；需要下载媒体时使用 `twitter-media-fetch`。
 - 不保存非 Twitter 平台数据。
 
@@ -97,6 +99,7 @@ plugins/twitter-tools/
         ├── bin/twitter-monitor
         ├── config.yaml.example
         └── scripts/
+            └── summarize_tweet.py
 ```
 
 其中：
@@ -170,7 +173,22 @@ claude plugin install twitter-tools@awesome-ai
 └── tmp/
 ```
 
-如果 `config.yaml` 不存在，agent 应从已安装 skill 的 `config.yaml.example` 创建一份，再让用户确认监控账号和 sink 配置。历史 convenience path 应 symlink 回这个权威 runtime，当前机器上的 `~/.twitter-monitor` 就是 symlink。monitor 的 X/Twitter cookie 仍然使用 `~/.twitter-fetch/.cookies.json`，Obsidian vault 仍然使用 `~/.obsidian-tools/vaults.json`。
+如果 `config.yaml` 不存在，agent 应从已安装 skill 的 `config.yaml.example` 创建一份，再让用户确认监控账号和 sink 配置。历史 convenience path 应 symlink 回这个权威 runtime，当前机器上的 `~/.twitter-monitor` 就是 symlink。monitor 的 X/Twitter cookie 仍然使用 `~/.twitter-fetch/.cookies.json`。当前 runner 不自动写 Obsidian，因此运行 monitor 不需要 Obsidian vault 配置。
+
+`twitter-monitor` 的通知 sink 默认写入 Notification Center，而不是直接调用飞书：
+
+```text
+/Users/saberrao/vault/.notification-center/
+├── YYYY-MM-DD.jsonl
+├── .delivered/
+└── .digest/
+```
+
+飞书 webhook 和签名 secret 属于 Notification Center 本机配置，不属于这个 plugin，也不应提交到 git：
+
+```text
+/Users/saberrao/.codex/skills/notification-center/feishu.json
+```
 
 默认 cookie 路径：
 
@@ -194,6 +212,7 @@ export TWITTER_FETCH_VENV=/path/to/venv
 ├── authors/
 ├── media/
 ├── timelines/
+├── windows/
 ├── fetch_state/
 └── consumers/
 ```
@@ -397,6 +416,49 @@ plugins/twitter-tools/skills/twitter-media-fetch/bin/twitter-media-fetch downloa
 
 注意：`history` 只读取数据，不读写 `.backfill_state.json`。
 
+### 运行 Twitter Monitor
+
+`twitter-monitor` 会检查上一个已关闭时间窗口。以 `interval_minutes: 60`、`window_grace_minutes: 10` 为例，12:11 运行会检查 `[11:00, 12:00)`：
+
+```bash
+plugins/twitter-tools/skills/twitter-monitor/bin/twitter-monitor run --pretty
+```
+
+运行逻辑：
+
+```text
+twitter-monitor
+  -> tweet-pool window get
+  -> twitter-fetch timeline on cache miss
+  -> tweet-pool window put
+  -> twitter-fetch single --include-thread
+  -> tweet-pool ingest
+  -> notification-center append
+```
+
+如果 `sinks.notification.enabled: true`，候选推文会写入 Notification Center 本地队列。Notification Center 的 dispatcher 再把通知发送到飞书：
+
+```bash
+python3 /Users/saberrao/.codex/skills/notification-center/dispatch.py --dry-run
+python3 /Users/saberrao/.codex/skills/notification-center/dispatch.py
+```
+
+卡片展示保持最小：
+
+```text
+Andrej Karpathy
+这里是推文正文或摘要……
+https://x.com/karpathy/status/123
+```
+
+短内容直接展示；超过 `sinks.notification.direct_chars` 时，会调用 `sinks.notification.summary_command`。内置摘要脚本读取环境变量里的 API key，不把 key 写入 config：
+
+```text
+TWITTER_MONITOR_LLM_API_KEY
+DEEPSEEK_API_KEY
+OPENAI_API_KEY
+```
+
 ## 输出格式
 
 默认输出是 JSON envelope：
@@ -463,11 +525,16 @@ agent 应该自己选择 `single`、`timeline`、`thread` 或 `history`，而不
 - `history` 依赖登录态，cookie 过期后需要重新配置。
 - 如果账号触发风控、2FA、CAPTCHA，需要你在浏览器里手动处理。
 - `twitter-fetch` 是只读数据层；`twitter-media-fetch` 只写调用方指定的媒体目录。写 vault、写 raw markdown、更新 backfill state 应该放在上层 skill 或脚本里。
+- `tweet-pool` 是 normalized fetch cache，不是统一业务队列；不要把一个 consumer 的处理状态当成另一个 consumer 的状态。
+- `twitter-monitor` 不直接发飞书；它只写 Notification Center 队列。飞书 webhook、secret、安静时间、去重和 delivered sidecar 都属于 Notification Center。
+- `twitter-monitor` 当前不会自动写 Obsidian；如果某条通知值得沉淀，应由人工或后续 workflow 再调用 Obsidian 写入能力。
 
 ## 维护者参考
 
 - agent 入口：`skills/twitter-fetch/SKILL.md`
+- 推文池入口：`skills/tweet-pool/SKILL.md`
 - 媒体下载入口：`skills/twitter-media-fetch/SKILL.md`
+- 监控入口：`skills/twitter-monitor/SKILL.md`
 - 命令手册：`skills/twitter-fetch/references/usage.md`
 - 输出 schema：`skills/twitter-fetch/references/schema.md`
 - 媒体 manifest schema：`skills/twitter-media-fetch/references/schema.md`
