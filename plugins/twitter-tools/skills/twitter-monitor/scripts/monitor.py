@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from fetch_timeline import fetch_timeline_window, ingest_tweet_pool
+from fetch_timeline import fetch_history_window, fetch_timeline_window, ingest_tweet_pool
 from twitter_fetch_runner import run_twitter_fetch
 
 
@@ -96,6 +96,7 @@ def load_config(path: Path) -> dict[str, Any]:
 def parse_config_subset(text: str) -> dict[str, Any]:
     config: dict[str, Any] = {"users": [], "settings": {}, "topics": [], "sinks": {}}
     section = ""
+    current_user: dict[str, Any] | None = None
     current_topic: dict[str, Any] | None = None
     current_sink: dict[str, Any] | None = None
     in_topic_users = False
@@ -105,13 +106,19 @@ def parse_config_subset(text: str) -> dict[str, Any]:
             continue
         if not line.startswith(" "):
             section = line.rstrip(":")
+            current_user = None
             current_topic = None
             current_sink = None
             in_topic_users = False
             continue
         stripped = line.strip()
         if section == "users" and stripped.startswith("- username:"):
-            config["users"].append({"username": parse_scalar(stripped.split(":", 1)[1])})
+            current_user = {"username": parse_scalar(stripped.split(":", 1)[1])}
+            config["users"].append(current_user)
+            continue
+        if section == "users" and current_user is not None and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            current_user[key.strip()] = parse_scalar(value)
             continue
         if section == "topics":
             if stripped.startswith("- name:"):
@@ -158,6 +165,48 @@ def configured_users(config: dict[str, Any]) -> list[str]:
             continue
         seen.add(key)
         unique.append(user)
+    return unique
+
+
+def user_config_by_user(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    mapping: dict[str, dict[str, Any]] = {}
+    for item in config.get("users") or []:
+        if isinstance(item, dict) and item.get("username"):
+            username = str(item["username"]).lstrip("@")
+            mapping.setdefault(username.lower(), item)
+    return mapping
+
+
+def user_config(username: str, config: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        return {}
+    return user_config_by_user(config).get(username.lstrip("@").lower(), {})
+
+
+def user_fetch_mode(username: str, config: dict[str, Any]) -> str:
+    mode = str(user_config(username, config).get("fetch_mode") or "timeline").strip().lower()
+    if mode in {"timeline", "history"}:
+        return mode
+    raise ValueError(f"unsupported fetch_mode for {username}: {mode}")
+
+
+def user_labels(username: str, config: dict[str, Any] | None) -> list[str]:
+    options = user_config(username, config)
+    raw_labels = options.get("labels") or []
+    labels: list[str] = []
+    if isinstance(raw_labels, list):
+        labels.extend(str(label).strip() for label in raw_labels)
+    elif isinstance(raw_labels, str):
+        labels.extend(part.strip() for part in raw_labels.split(","))
+    if options.get("paid") or options.get("subscriber_only"):
+        labels.append("付费")
+    seen: set[str] = set()
+    unique: list[str] = []
+    for label in labels:
+        if not label or label in seen:
+            continue
+        seen.add(label)
+        unique.append(label)
     return unique
 
 
@@ -393,8 +442,14 @@ def build_notification_summary(
     summary_chars = setting_int(settings, "summary_chars", SUMMARY_LIMIT)
     text = notification_text(item, full_payload)
     compact = clean_summary(text, limit=max(len(text), 1))
-    if len(compact) <= direct_chars:
-        return compact, {"summary_source": "direct"}
+    labels = user_labels(username, config)
+    label_prefix = " ".join(f"[{label}]" for label in labels)
+    paid_content = "付费" in labels
+    if len(compact) <= direct_chars and not paid_content:
+        summary = f"{label_prefix} {compact}".strip()
+        return clean_summary(summary, limit=max(direct_chars, len(label_prefix) + 1)), {
+            "summary_source": "direct"
+        }
 
     command = str(settings.get("summary_command") or "").strip()
     if command:
@@ -419,14 +474,29 @@ def build_notification_summary(
             )
             summary = clean_summary(summary, limit=summary_chars)
             if summary:
+                summary = f"{label_prefix} {summary}".strip()
                 return summary, {"summary_source": "llm"}
         except Exception as exc:
-            return clean_summary(text, limit=summary_chars), {
+            if paid_content:
+                return f"{label_prefix} 摘要生成失败，请点击链接查看原文。".strip(), {
+                    "summary_source": "fallback",
+                    "summary_error": str(exc),
+                }
+            summary = f"{label_prefix} {clean_summary(text, limit=summary_chars)}".strip()
+            return clean_summary(summary, limit=max(summary_chars, len(label_prefix) + 1)), {
                 "summary_source": "fallback",
                 "summary_error": str(exc),
             }
 
-    return clean_summary(text, limit=summary_chars), {"summary_source": "fallback"}
+    if paid_content:
+        return f"{label_prefix} 摘要生成失败，请点击链接查看原文。".strip(), {
+            "summary_source": "fallback"
+        }
+
+    summary = f"{label_prefix} {clean_summary(text, limit=summary_chars)}".strip()
+    return clean_summary(summary, limit=max(summary_chars, len(label_prefix) + 1)), {
+        "summary_source": "fallback"
+    }
 
 
 def build_notification_event(
@@ -448,6 +518,7 @@ def build_notification_event(
     content_types = tweet_content_types(item, full_payload)
     summary, summary_meta = build_notification_summary(username, item, full_payload, config)
     topic = topic_for_user(username, config)
+    labels = user_labels(username, config)
     meta = {
         "tweet_id": tweet_id,
         "username": username,
@@ -455,6 +526,8 @@ def build_notification_event(
         "display": {"hide_source_prefix": True, "hide_level": True},
         **summary_meta,
     }
+    if labels:
+        meta["labels"] = labels
     if topic:
         meta["topic"] = topic
     return {
@@ -527,9 +600,26 @@ def fetch_single(item: dict[str, Any], expand_thread: bool) -> dict[str, Any]:
     return run_twitter_fetch(args)
 
 
+def full_payload_from_history_item(username: str, item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "mode": "history",
+        "source": "tweet-pool",
+        "fetched_at": now_iso(),
+        "input": {
+            "user": username,
+            "url": str(item.get("url") or ""),
+        },
+        "items": [item],
+        "error": None,
+    }
+
+
 def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
     settings = config.get("settings") or {}
     limit = scan_limit(settings)
+    fetch_mode = user_fetch_mode(username, config)
+    history_max_pages = setting_int(settings, "history_max_pages", 3)
     expand_thread = bool(settings.get("expand_thread", True))
     mark_skipped = bool(settings.get("mark_skipped_as_seen", True))
     notify = notification_enabled(config)
@@ -557,14 +647,26 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
         "window_status": "",
         "cache_hit": False,
         "scan_limit": limit,
+        "fetch_mode": fetch_mode,
     }
-    timeline = fetch_timeline_window(
-        username,
-        format_iso(window_start),
-        format_iso(window_end),
-        limit,
-        grace_minutes,
-    )
+    if fetch_mode == "history":
+        timeline = fetch_history_window(
+            username,
+            format_iso(window_start),
+            format_iso(window_end),
+            limit,
+            grace_minutes,
+            history_max_pages=history_max_pages,
+        )
+        report["history_max_pages"] = history_max_pages
+    else:
+        timeline = fetch_timeline_window(
+            username,
+            format_iso(window_start),
+            format_iso(window_end),
+            limit,
+            grace_minutes,
+        )
     items = timeline.get("items") or []
     snapshot = timeline.get("snapshot") or {}
     report["timeline_count"] = int(timeline.get("timeline_count") or len(items))
@@ -597,7 +699,11 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
                 )
             continue
         try:
-            full_payload = fetch_single(item, expand_thread)
+            full_payload = (
+                full_payload_from_history_item(username, item)
+                if fetch_mode == "history"
+                else fetch_single(item, expand_thread)
+            )
             ingest_tweet_pool(full_payload)
         except Exception as exc:
             report["failed"] += 1

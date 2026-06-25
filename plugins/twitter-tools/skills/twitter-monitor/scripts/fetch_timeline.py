@@ -133,12 +133,15 @@ def window_summary(payload: dict[str, Any], *, cache_hit: bool) -> dict[str, Any
     }
 
 
-def fetch_timeline_window(
+def fetch_window(
     username: str,
     window_start: str,
     window_end: str,
     limit: int,
     grace_minutes: int,
+    *,
+    fetch_mode: str = "timeline",
+    history_max_pages: int = 3,
 ) -> dict[str, Any]:
     cache_payload = run_tweet_pool(
         [
@@ -154,10 +157,33 @@ def fetch_timeline_window(
         ]
     )
     snapshot = cache_payload.get("snapshot") or {}
-    if cache_payload.get("found") and snapshot.get("status") == "finalized":
+    snapshot_source_mode = str(snapshot.get("source_mode") or "timeline")
+    if (
+        cache_payload.get("found")
+        and snapshot.get("status") == "finalized"
+        and snapshot_source_mode == fetch_mode
+    ):
         return window_summary(cache_payload, cache_hit=True)
 
-    timeline = run_twitter_fetch(["timeline", "--user", username, "--limit", str(limit)])
+    if fetch_mode == "history":
+        payload = run_twitter_fetch(
+            [
+                "history",
+                "--user",
+                username,
+                "--page-size",
+                str(limit),
+                "--max-pages",
+                str(max(history_max_pages, 1)),
+            ]
+        )
+        coverage_limit = limit * max(history_max_pages, 1)
+    elif fetch_mode == "timeline":
+        payload = run_twitter_fetch(["timeline", "--user", username, "--limit", str(limit)])
+        coverage_limit = limit
+    else:
+        raise ValueError(f"unsupported fetch_mode: {fetch_mode}")
+
     window_payload = run_tweet_pool(
         [
             "window",
@@ -171,16 +197,53 @@ def fetch_timeline_window(
             "--input",
             "-",
             "--limit",
-            str(limit),
+            str(coverage_limit),
             "--grace-minutes",
             str(grace_minutes),
             "--now",
             now_iso(),
             "--include-items",
         ],
-        timeline,
+        payload,
     )
     return window_summary(window_payload, cache_hit=False)
+
+
+def fetch_timeline_window(
+    username: str,
+    window_start: str,
+    window_end: str,
+    limit: int,
+    grace_minutes: int,
+) -> dict[str, Any]:
+    return fetch_window(
+        username,
+        window_start,
+        window_end,
+        limit,
+        grace_minutes,
+        fetch_mode="timeline",
+    )
+
+
+def fetch_history_window(
+    username: str,
+    window_start: str,
+    window_end: str,
+    limit: int,
+    grace_minutes: int,
+    *,
+    history_max_pages: int = 3,
+) -> dict[str, Any]:
+    return fetch_window(
+        username,
+        window_start,
+        window_end,
+        limit,
+        grace_minutes,
+        fetch_mode="history",
+        history_max_pages=history_max_pages,
+    )
 
 
 def now_iso() -> str:

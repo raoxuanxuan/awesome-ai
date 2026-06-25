@@ -93,12 +93,15 @@ users:
   - username: "qinbafrank"
   - username: "labubu_trader"
   - username: "omarsar0"
+  - username: "tig88411109"
+    fetch_mode: "history"
+    paid: true
 
 topics:
   - name: "ClaudeCode"
     users: ["trq212", "bcherny", "amorriscode", "OmidMogasemi", "claudeai"]
   - name: "invest"
-    users: ["Money_or_Life_X", "Franktradinglog", "qinbafrank", "labubu_trader"]
+    users: ["Money_or_Life_X", "Franktradinglog", "qinbafrank", "labubu_trader", "tig88411109"]
   - name: "AI"
     users: ["karpathy", "omarsar0"]
 
@@ -106,6 +109,7 @@ settings:
   interval_minutes: 60
   window_grace_minutes: 10
   max_scan_per_user: 50
+  history_max_pages: 3
   include_replies: false
   include_retweets: false
   expand_thread: true
@@ -136,10 +140,13 @@ sinks:
    - `window_end` is the most recent interval boundary whose grace period has passed.
    - `window_start = window_end - interval_minutes`.
    - Example: with `interval_minutes: 60` and `window_grace_minutes: 10`, a 12:11 run checks `[11:00, 12:00)`.
-3. Read or create each user's timeline window snapshot.
+3. Read or create each user's fetch window snapshot.
    - First read `tweet-pool window get --user <username> --window-start <start> --window-end <end> --include-items`.
-   - If the snapshot is `finalized`, reuse its tweet IDs and do not request X/Twitter.
-   - On miss, call `twitter-fetch timeline --user <username> --limit <max_scan_per_user> --pretty`, then write `tweet-pool window put`.
+   - If the snapshot is `finalized` and its `source_mode` matches the user's `fetch_mode`, reuse its tweet IDs and do not request X/Twitter.
+   - On miss, use per-user `fetch_mode`:
+     - default `timeline`: call `twitter-fetch timeline --user <username> --limit <max_scan_per_user> --pretty`
+     - `history`: call authenticated `twitter-fetch history --user <username> --page-size <max_scan_per_user> --max-pages <history_max_pages> --pretty`
+   - Write the standard fetch envelope to `tweet-pool window put`.
    - Empty finalized snapshots are valid and should be reused.
    - If the scan hits `max_scan_per_user` before proving coverage of `window_start`, mark the snapshot `incomplete`.
 4. Compatibility wrapper:
@@ -173,8 +180,9 @@ always the standard envelope:
    - Do not skip short posts containing `http` or `t.co`; they may be X Articles or link posts.
    - If `mark_skipped_as_seen: true`, write skipped status to state with reason.
 7. Fetch complete content for each candidate.
-   - Use `twitter-fetch single --url <url> --include-thread --pretty`.
-   - If this fails, mark retryable failure and do not write outputs.
+   - For default `timeline` users, use `twitter-fetch single --url <url> --include-thread --pretty`.
+   - For `history` users, use the authenticated GraphQL history item directly; this avoids losing subscriber-only content through public single-tweet providers.
+   - If completion fails, mark retryable failure and do not write outputs.
 8. Append a notification event when enabled.
    - Use `notification-center/append.py --stdin`.
    - The Feishu-facing card content is intentionally minimal:
@@ -183,11 +191,13 @@ always the standard envelope:
      - tweet link
      - content type: `thread`, `quote`, `article`, or plain `tweet`
    - The notification event includes `meta.topic` when the monitored user belongs to a configured topic.
+   - If a user config has `paid: true` or `subscriber_only: true`, the notification summary is prefixed with `[付费]` and `meta.labels` includes `付费`.
    - Keep `targets: ["feishu"]`; topic-to-webhook routing belongs to `notification-center`, where one Feishu bot can serve multiple topics.
    - Summary policy:
-     - If cleaned content length is within `sinks.notification.direct_chars`, show the content directly.
+     - If cleaned content length is within `sinks.notification.direct_chars`, show the content directly, except paid/subscriber-only users.
+     - For `paid: true` or `subscriber_only: true` users, always call the summary command and never fall back to sending original text.
      - If content is longer, call `sinks.notification.summary_command` with JSON on stdin and use the returned summary.
-     - If no command is configured or the command fails, fall back to local truncation at `sinks.notification.summary_chars`.
+     - If no command is configured or the command fails, fall back to local truncation at `sinks.notification.summary_chars`; for paid/subscriber-only users, fall back to a link-only summary failure notice.
      - The bundled `scripts/summarize_tweet.py` uses an OpenAI-compatible chat completions API. It reads `TWITTER_MONITOR_LLM_API_KEY`, `DEEPSEEK_API_KEY`, or `OPENAI_API_KEY` from the environment and never stores keys in config.
    - Notification append is best-effort; a local notification failure should be reported but should not corrupt tweet-pool ingest state.
 9. Update state only after outputs finish.

@@ -413,6 +413,7 @@ settings:
 sinks:
   notification:
     enabled: true
+    summary_command: "/mock/summarizer"
 """,
                 encoding="utf-8",
             )
@@ -444,6 +445,92 @@ sinks:
             self.assertEqual(event["title"], "Andrej Karpathy")
             self.assertEqual(event["links"], [{"label": useful["url"], "url": useful["url"]}])
             self.assertEqual(report["users"]["karpathy"]["notified"], 1)
+
+    def test_history_mode_uses_history_item_and_adds_paid_notification_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / ".twitter-monitor"
+            runtime.mkdir()
+            (runtime / "config.yaml").write_text(
+                """
+users:
+  - username: "tig88411109"
+    fetch_mode: "history"
+    paid: true
+
+topics:
+  - name: "invest"
+    users:
+      - "tig88411109"
+
+settings:
+  interval_minutes: 60
+  window_grace_minutes: 0
+  max_scan_per_user: 20
+  history_max_pages: 2
+
+sinks:
+  notification:
+    enabled: true
+    summary_command: "/mock/summarizer"
+""",
+                encoding="utf-8",
+            )
+            paid_tweet = tweet(
+                "501",
+                text="Subscriber-only long view on MU valuation before earnings.",
+                author="Tigris 会讲课教授是好老师",
+                screen_name="tig88411109",
+            )
+
+            with mock.patch.object(monitor, "now_iso", return_value="2026-06-23T10:00:00Z"):
+                with mock.patch.object(
+                    monitor,
+                    "fetch_history_window",
+                    return_value=window_payload(paid_tweet),
+                ) as fetch_history:
+                    with mock.patch.object(monitor, "fetch_single") as fetch_single:
+                        with mock.patch.object(
+                            monitor,
+                            "run_summary_command",
+                            return_value="MU 财报前估值观点摘要。",
+                        ) as summarize:
+                            with mock.patch.object(monitor, "ingest_tweet_pool"):
+                                with mock.patch.object(monitor, "append_notification_event") as append:
+                                    report = monitor.run_monitor(runtime)
+
+            fetch_history.assert_called_once_with(
+                "tig88411109",
+                "2026-06-23T09:00:00Z",
+                "2026-06-23T10:00:00Z",
+                20,
+                0,
+                history_max_pages=2,
+            )
+            fetch_single.assert_not_called()
+            event = append.call_args.args[0]
+            self.assertEqual(event["title"], "Tigris 会讲课教授是好老师")
+            summarize.assert_called_once()
+            self.assertEqual(event["summary"], "[付费] MU 财报前估值观点摘要。")
+            self.assertEqual(event["meta"]["labels"], ["付费"])
+            self.assertEqual(event["meta"]["topic"], "invest")
+            self.assertEqual(event["meta"]["summary_source"], "llm")
+            user_report = report["users"]["tig88411109"]
+            self.assertEqual(user_report["fetch_mode"], "history")
+            self.assertEqual(user_report["history_max_pages"], 2)
+            self.assertEqual(user_report["notified"], 1)
+
+    def test_paid_notification_does_not_fallback_to_original_text(self):
+        item = tweet("502", text="Subscriber-only short original text.")
+        config = {
+            "users": [{"username": "tig88411109", "paid": True}],
+            "sinks": {"notification": {"direct_chars": 300, "summary_chars": 300}},
+        }
+
+        event = monitor.build_notification_event("tig88411109", item, timeline_payload(item), config)
+
+        self.assertEqual(event["summary"], "[付费] 摘要生成失败，请点击链接查看原文。")
+        self.assertNotIn("Subscriber-only short original text", event["summary"])
+        self.assertEqual(event["meta"]["summary_source"], "fallback")
 
     def test_run_passes_config_to_notification_builder(self):
         with tempfile.TemporaryDirectory() as tmp:

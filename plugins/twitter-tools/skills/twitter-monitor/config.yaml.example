@@ -12,6 +12,9 @@ users:
   - username: "qinbafrank"
   - username: "labubu_trader"
   - username: "omarsar0"
+  - username: "tig88411109"
+    fetch_mode: "history"
+    paid: true
 
 topics:
   - name: "ClaudeCode"
@@ -27,6 +30,7 @@ topics:
       - "Franktradinglog"
       - "qinbafrank"
       - "labubu_trader"
+      - "tig88411109"
   - name: "AI"
     users:
       - "karpathy"
@@ -37,6 +41,7 @@ settings:
   interval_minutes: 60
   window_grace_minutes: 10
   max_scan_per_user: 50
+  history_max_pages: 3
   include_replies: false
   include_retweets: false
   expand_thread: true
