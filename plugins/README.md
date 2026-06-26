@@ -1,84 +1,86 @@
-# Awesome AI Plugins
+# Awesome AI 插件
 
-This directory contains local agent plugins that share a few common rules:
+这个目录存放本地 agent 插件。所有插件遵循几条共同规则：
 
-- Plugin code lives in git.
-- Runtime state, credentials, caches, logs, cookies, webhooks, and secrets stay outside git.
-- Each plugin owns one coherent layer; cross-plugin workflows should pass structured files or events rather than sharing mutable business state.
-- Codex manifests live in `.codex-plugin/plugin.json`; Claude Code manifests live in `.claude-plugin/plugin.json`.
+- 插件代码进入 git。
+- 运行时状态、凭据、缓存、日志、cookies、webhook 和 secret 不进入 git。
+- 每个插件只负责一个清晰层次；跨插件协作通过结构化文件或事件传递，不共享可变业务状态。
+- Codex 插件声明文件放在 `.codex-plugin/plugin.json`。
+- Claude Code 插件声明文件放在 `.claude-plugin/plugin.json`。
 
-## Plugins
+## 插件列表
 
-| Plugin | Purpose | Runtime State |
+| 插件 | 职责 | 运行时状态 |
 | --- | --- | --- |
-| `twitter-tools` | Fetch, normalize, cache, download media for, and monitor X/Twitter content. | `/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/`, `/Users/saberrao/ai-workspace/content-creation/.tweet-pool/`, `~/.twitter-fetch/` |
-| `notification-tools` | Queue local notification events, route them by topic, and dispatch Feishu cards. | `~/vault/.notification-center/`, `~/.notification-center/feishu.json` |
-| `obsidian-tools` | Route normalized external content into configured Obsidian vaults. | Local vault configuration and target vaults |
-| `kol-tools` | Refresh, clean, index, distill, ask, and debate private KOL archives. | `/Users/saberrao/vault/kol/` |
+| `twitter-tools` | 获取、规范化、缓存、下载媒体并监控 X/Twitter 内容。 | `/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/`、`/Users/saberrao/ai-workspace/content-creation/.tweet-pool/`、`~/.twitter-fetch/` |
+| `notification-tools` | 写入本地通知事件队列，按 topic 路由，并发送飞书卡片。 | `~/vault/.notification-center/`、`~/.notification-center/feishu.json` |
+| `obsidian-tools` | 将已经规范化的外部内容写入配置好的 Obsidian vault。 | 本地 vault 配置和目标 vault |
+| `kol-tools` | 刷新、清洗、索引、蒸馏、问答和辩论私有 KOL 档案。 | `/Users/saberrao/vault/kol/` |
 
-## Boundaries
+## 边界
 
-- `twitter-tools` fetches and monitors external social content, but does not send Feishu messages directly.
-- `notification-tools` sends notifications, but does not fetch Twitter/X content or write Obsidian notes.
-- `obsidian-tools` writes knowledge artifacts only after a source-specific fetcher provides normalized content.
-- `kol-tools` consumes private KOL archives and can call source fetchers, but keeps KOL vault data outside the plugin.
+- `twitter-tools` 负责抓取和监控外部社交内容，但不直接发送飞书消息。
+- `notification-tools` 负责发送通知，但不抓取 Twitter/X 内容，也不写入 Obsidian 笔记。
+- `obsidian-tools` 只在源 fetcher 已经提供规范化内容之后写入知识库。
+- `kol-tools` 消费私有 KOL 档案，可以调用源 fetcher，但 KOL vault 数据保留在插件外部。
 
-## Marketplace Files
+## Marketplace 文件
 
-Codex:
+Codex：
 
 ```text
 .agents/plugins/marketplace.json
 ```
 
-Claude Code:
+Claude Code：
 
 ```text
 .claude-plugin/marketplace.json
 ```
 
-From the repository root, install with:
+在仓库根目录安装 Codex 插件：
 
 ```bash
 codex plugin marketplace add .
 codex plugin add <plugin-name>@awesome-ai
 ```
 
-For Claude Code:
+安装 Claude Code 插件：
 
 ```bash
 claude plugin marketplace add ./
 claude plugin install <plugin-name>@awesome-ai
 ```
 
-## Local Runtime Sync
+## 本地运行版本同步
 
-Use `main` as the source of truth for locally used Codex plugins. The expected
-flow for plugin changes is:
+本机使用的 Codex 插件以 `origin/main` 为唯一源码基线。插件修改的标准流程是：
 
-1. Edit plugin source in this repository.
-2. Run targeted validation.
-3. Commit and push to `origin/main`.
-4. Refresh the local Codex plugin cache from `main`.
+1. 在本仓库修改插件源码。
+2. 运行对应的验证命令。
+3. 提交并推送到 `origin/main`。
+4. 从 `origin/main` 刷新本地 Codex plugin cache。
 
-From the repository root:
+在仓库根目录执行：
 
 ```bash
 ./plugins/sync-local-plugins.sh
 ```
 
-The script refuses to run with a dirty worktree, fast-forwards local `main` from
-`origin/main`, reinstalls every plugin listed in `.agents/plugins/marketplace.json`,
-and verifies that each installed cache directory matches the git source exactly.
-It also turns the historical local `~/.codex/skills/notification-center` path
-into a symlink to the installed `notification-tools` plugin skill, so both
-natural-language skill invocation and launchd jobs use plugin code.
+这个脚本会：
 
-Local launchd jobs should call scripts under:
+- 拒绝在 dirty worktree 下运行。
+- 快进本地 `main` 到 `origin/main`。
+- 重新安装 `.agents/plugins/marketplace.json` 中列出的所有插件。
+- 校验每个已安装 cache 目录都和 git source 完全一致。
+- 将历史本地路径 `~/.codex/skills/notification-center` 改成指向已安装 `notification-tools` 插件 skill 的 symlink。
+
+这样自然语言触发 skill、launchd 自动任务和手动命令都会使用 plugin cache 里的代码。
+
+本地 launchd job 应调用下面目录里的脚本：
 
 ```text
 ~/.codex/plugins/cache/awesome-ai/<plugin>/<version>/
 ```
 
-Runtime config, credentials, logs, queues, cookies, and caches remain outside
-git and outside plugin source directories.
+运行时配置、凭据、日志、队列、cookies 和缓存仍然保留在 git 与插件源码目录之外。
