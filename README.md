@@ -2,35 +2,38 @@
 
 [![CI](https://github.com/raoxuanxuan/awesome-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/raoxuanxuan/awesome-ai/actions/workflows/ci.yml)
 
-A curated list of awesome AI resources, tools, skills, and agent plugins.
+这个仓库用于沉淀 AI 资源、工具、skills 和 agent 插件。
 
-## Table of Contents
+## 目录
 
-- [Models](#models)
-- [Tools](#tools)
-- [Skills](#skills)
-- [Plugins](#plugins)
+- [模型](#模型)
+- [工具](#工具)
+- [技能](#技能)
+- [插件](#插件)
 
-## Models
+## 模型
 
-AI models and model families worth exploring.
+值得跟踪和尝试的 AI 模型、模型家族与相关资料。
 
-## Tools
+## 工具
 
-Tools and frameworks for working with AI.
+用于 AI 开发、研究、自动化和 agent 工作流的工具与框架。
 
-## Skills
+## 技能
 
-Techniques and skills for building AI-powered applications.
+用于构建 AI 应用、agent 工作流和本地自动化能力的技能说明。
 
-## Plugins
+## 插件
 
-This repository also acts as a plugin marketplace.
+这个仓库同时也是本地插件 marketplace。
 
-- Codex marketplace: `.agents/plugins/marketplace.json`
-- Claude Code marketplace: `.claude-plugin/marketplace.json`
-- Plugin packages: `plugins/`
+- Codex marketplace：`.agents/plugins/marketplace.json`
+- Claude Code marketplace：`.claude-plugin/marketplace.json`
+- 插件包目录：`plugins/`
 
-Current plugins:
+当前插件：
 
-- `twitter-tools`: read-only X/Twitter fetching and normalization for downstream agent workflows.
+- `twitter-tools`：面向下游 agent workflow 的 X/Twitter 只读抓取、规范化、缓存和监控能力。
+- `notification-tools`：本地通知队列、topic 路由和飞书卡片发送能力。
+- `obsidian-tools`：将规范化外部内容写入 Obsidian vault。
+- `kol-tools`：私有 KOL 档案刷新、清洗、索引、蒸馏、问答和辩论 workflow。

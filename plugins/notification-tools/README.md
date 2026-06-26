@@ -1,28 +1,25 @@
 # Notification Tools
 
-Notification Tools provides a local notification boundary for agent workflows.
-Producer skills append structured events into a local JSONL queue; dispatcher
-scripts route those events to Feishu bots with signing, quiet-hour rules,
-target-scoped delivery sidecars, and a process lock to avoid duplicate sends.
+Notification Tools 为本地 agent workflow 提供通知边界。生产者 skill 将结构化事件写入本地 JSONL 队列；dispatcher 脚本负责按 topic 路由到飞书机器人，并处理签名、安静时间、按目标去重的 delivered sidecar，以及进程锁，避免重复发送。
 
-## Capabilities
+## 能做什么
 
-- Append structured notification events.
-- Route Feishu notifications by topic.
-- Send one topic to multiple bots, or one bot to multiple topics.
-- Hide Feishu card source, level, or footer through `meta.display`.
-- Respect quiet hours for non-critical alerts.
-- Keep target-scoped delivered markers for dedupe.
-- Watch local files and convert changes into notification events.
+- 写入结构化通知事件。
+- 按 topic 路由飞书通知。
+- 支持一个 topic 推送到多个 bot，也支持一个 bot 接收多个 topic。
+- 通过 `meta.display` 隐藏飞书卡片的来源、等级或底部信息。
+- 非关键告警遵守安静时间。
+- 使用按目标区分的 delivered marker 做去重。
+- 监听本地文件变化，并转换成通知事件。
 
-## Non-Goals
+## 不做什么
 
-- It does not fetch Twitter/X content.
-- It does not write Obsidian notes.
-- It does not own producer scheduling.
-- It does not store real Feishu webhook URLs or secrets in the plugin.
+- 不抓取 Twitter/X 内容。
+- 不写入 Obsidian 笔记。
+- 不负责生产者调度。
+- 不在插件里保存真实飞书 webhook URL 或 secret。
 
-## Directory Structure
+## 目录结构
 
 ```text
 notification-tools/
@@ -43,34 +40,36 @@ notification-tools/
         └── watcher.py
 ```
 
-## Runtime Paths
+## 运行时路径
 
-Runtime queue and delivery state:
+通知队列和投递状态：
 
 ```text
 ~/vault/.notification-center/
 ```
 
-Preferred Feishu config path:
+推荐的飞书配置路径：
 
 ```text
 ~/.notification-center/feishu.json
 ```
 
-Environment overrides:
+环境变量覆盖：
 
 ```bash
 export NOTIFICATION_CENTER_RUNTIME=/path/to/runtime
 export NOTIFICATION_CENTER_FEISHU_CONFIG=/path/to/feishu.json
 ```
 
-`dispatch.py` also checks the legacy local-skill path
-`~/.codex/skills/notification-center/feishu.json` for compatibility.
+为了兼容历史配置，`dispatch.py` 也会检查旧本地 skill 路径：
 
-## Feishu Setup
+```text
+~/.codex/skills/notification-center/feishu.json
+```
 
-Copy `skills/notification-center/feishu.example.json` to a local config path,
-replace placeholders, and lock down permissions:
+## 飞书配置
+
+将 `skills/notification-center/feishu.example.json` 复制到本机配置路径，替换占位符，并收紧权限：
 
 ```bash
 mkdir -p ~/.notification-center
@@ -78,11 +77,11 @@ cp skills/notification-center/feishu.example.json ~/.notification-center/feishu.
 chmod 600 ~/.notification-center/feishu.json
 ```
 
-Do not commit real webhook URLs or Feishu secrets.
+不要提交真实 webhook URL 或飞书 secret。
 
-## Commands
+## 常用命令
 
-Append an event:
+写入一个事件：
 
 ```bash
 python3 skills/notification-center/append.py \
@@ -95,19 +94,19 @@ python3 skills/notification-center/append.py \
   --meta '{"topic":"invest"}'
 ```
 
-Preview pending Feishu sends:
+预览待发送飞书消息：
 
 ```bash
 python3 skills/notification-center/dispatch.py --dry-run
 ```
 
-Dispatch pending sends:
+发送待处理消息：
 
 ```bash
 python3 skills/notification-center/dispatch.py
 ```
 
-Run watcher checks:
+运行 watcher 检查：
 
 ```bash
 python3 skills/notification-center/watcher.py --dry-run
@@ -115,8 +114,7 @@ python3 skills/notification-center/watcher.py --dry-run
 
 ## Launchd
 
-The bundled launchd plists are templates. Install them only after confirming
-their script paths match the installed plugin or local checkout path.
+插件内置的 launchd plist 是模板。安装前需要确认其中脚本路径和当前插件安装路径或本地 checkout 路径一致。
 
 ```bash
 cp skills/notification-center/launchd/com.saber.notification-center.*.plist \
@@ -125,24 +123,23 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.saber.notification-c
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.saber.notification-center.watch.plist
 ```
 
-## Security
+## 安全
 
-- Keep real Feishu config outside git.
-- Keep config permissions at `0600`.
-- Do not paste Feishu webhook URLs or signing secrets into chat.
-- Runtime queues, logs, sidecars, and watermarks are local mutable state and
-  should not be committed.
+- 真实飞书配置保存在 git 之外。
+- 配置文件权限保持为 `0600`。
+- 不要把飞书 webhook URL 或签名 secret 粘贴到对话里。
+- 运行时队列、日志、sidecar 和 watermark 都是本地可变状态，不应提交。
 
-## Install
+## 安装
 
-From the repository root:
+在仓库根目录执行：
 
 ```bash
 codex plugin marketplace add .
 codex plugin add notification-tools@awesome-ai
 ```
 
-For Claude Code:
+Claude Code：
 
 ```bash
 claude plugin marketplace add ./

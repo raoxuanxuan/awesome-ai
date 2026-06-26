@@ -1,73 +1,67 @@
 # KOL Tools
 
-KOL Tools is a private KOL digital-twin plugin for Codex and Claude Code.
+KOL Tools 是一个同时面向 Codex 和 Claude Code 的私有 KOL 数字分身插件。
 
-## What It Does
+## 能做什么
 
-- Maintains raw KOL archives under `/Users/saberrao/vault/kol/`.
-- Reuses `twitter-tools/tweet-pool` as the canonical tweet cache before writing raw KOL Markdown.
-- Cleans low-information tweets without deleting raw data.
-- Preserves substantive replies and routes them into methods, positions, sources, voice, or timeline.
-- Builds deterministic indexes and stats.
-- Generates risk-scored distillation prompt packs before KOL wiki updates.
-- Provides prompts and scripts for KOL ask and debate workflows.
+- 维护 `/Users/saberrao/vault/kol/` 下的 KOL 原始档案。
+- 写入 KOL raw Markdown 前，复用 `twitter-tools/tweet-pool` 作为规范化推文缓存。
+- 清洗低信息密度推文，但不删除原始数据。
+- 保留有实质信息的回复，并将其路由到方法论、立场、source、voice 或 timeline。
+- 构建确定性的索引和统计信息。
+- 在更新 KOL wiki 前生成带风险分级的蒸馏 prompt pack。
+- 提供 KOL ask 和 debate workflow 的 prompt 与脚本。
 
-## What It Does Not Do
+## 不做什么
 
-- It does not implement low-level X/Twitter fetching or global tweet caching itself. It calls `twitter-tools/twitter-fetch` and `twitter-tools/tweet-pool`.
-- It does not publish KOL twin output.
-- It does not commit raw tweets, cookies, subscriber posts, or runtime state.
-- It does not impersonate a KOL as the real person.
+- 不在本插件内实现底层 X/Twitter 抓取或全局推文缓存；这些能力由 `twitter-tools/twitter-fetch` 和 `twitter-tools/tweet-pool` 提供。
+- 不公开发布 KOL twin 输出。
+- 不提交原始推文、cookies、订阅者内容或运行时状态。
+- 不把数字分身输出冒充成 KOL 本人发言。
 
-## Runtime Data
+## 运行时数据
 
-The authoritative KOL vault is:
+权威 KOL vault 路径：
 
 ```text
 /Users/saberrao/vault/kol/
 ```
 
-Override:
+可用环境变量覆盖：
 
 ```bash
 export KOL_TOOLS_VAULT=/path/to/kol
 ```
 
-For investment-related ask questions, `kol_ask.py` can also include relevant
-pages from the local invest wiki:
+对投资相关问题，`kol_ask.py` 也可以引入本地 invest wiki 的相关页面：
 
 ```text
 /Users/saberrao/vault/invest/wiki/
 ```
 
-Override:
+可用环境变量覆盖：
 
 ```bash
 export KOL_TOOLS_INVEST_WIKI=/path/to/invest/wiki
 ```
 
-KOL refresh also writes normalized tweet cache and consumer status through
-`twitter-tools/tweet-pool`. By default that runtime is:
+KOL refresh 还会通过 `twitter-tools/tweet-pool` 写入规范化推文缓存和 consumer 状态。默认运行时路径：
 
 ```text
 /Users/saberrao/ai-workspace/content-creation/.tweet-pool/
 ```
 
-Override for tests:
+测试时可覆盖：
 
 ```bash
 export TWEET_POOL_RUNTIME=/tmp/.tweet-pool
 ```
 
-Historical raw archives can be migrated into tweet-pool with
-`kol_pool_backfill.py`. This is a one-time compatibility migration for old
-`vault/kol/<handle>/raw/tweets/*.md` files: it writes canonical tweet JSON and
-`consumers/kol-tools.json`, but does not rewrite raw Markdown, clean/index
-content, update wiki pages, or advance `.backfill_state.json`.
+历史 raw 档案可以用 `kol_pool_backfill.py` 迁移进 tweet-pool。这是针对旧 `vault/kol/<handle>/raw/tweets/*.md` 文件的一次性兼容迁移：它会写入 canonical tweet JSON 和 `consumers/kol-tools.json`，但不会改写 raw Markdown、不会清洗或索引内容、不会更新 wiki 页面，也不会推进 `.backfill_state.json`。
 
-## Install
+## 安装
 
-From the `awesome-ai` repository root:
+在 `awesome-ai` 仓库根目录执行：
 
 ```bash
 codex plugin marketplace add .
@@ -76,11 +70,11 @@ claude plugin marketplace add ./
 claude plugin install kol-tools@awesome-ai
 ```
 
-## First Run
+## 首次运行
 
-The plugin can create derived files such as `.clean_corpus.jsonl`, `.ingest_index.jsonl`, and health reports. It will not create credentials or scrape browser cookies.
+插件可以生成 `.clean_corpus.jsonl`、`.ingest_index.jsonl`、health report 等派生文件。它不会创建凭据，也不会抓取浏览器 cookies。
 
-## Common Commands
+## 常用命令
 
 ```bash
 python3 plugins/kol-tools/skills/kol-clean/scripts/kol_clean.py TJ_Research --vault /Users/saberrao/vault/kol --dry-run
@@ -103,72 +97,54 @@ python3 plugins/kol-tools/scripts/kol_debate.py --vault /Users/saberrao/vault/ko
 python3 plugins/kol-tools/scripts/kol_debate.py --vault /Users/saberrao/vault/kol --kols TJ_Research,LinQingV --question "AI capex 是泡沫吗？" --rounds 2 --mode run --pack-id <pack-id> --runner-command "python3 plugins/kol-tools/scripts/kol_claude_runner.py"
 ```
 
-`kol_distill.py --mode prompt-pack` writes only a review workspace under:
+`kol_distill.py --mode prompt-pack` 只会在下面目录写入 review workspace：
 
 ```text
 /Users/saberrao/vault/kol/<handle>/wiki/.distill_prompt_packs/
 ```
 
-`prompt-pack` does not modify durable wiki pages or advance `.ingest_meta.json`.
+`prompt-pack` 不会修改长期 wiki 页面，也不会推进 `.ingest_meta.json`。
 
-The generated `manifest.json` and `risk_assessment.json` classify the run:
+生成的 `manifest.json` 和 `risk_assessment.json` 会对本次运行做风险分级：
 
-- `auto_eligible`: low-risk source/index-log updates; user review is not required after validators pass.
-- `agent_review_required`: medium-risk existing method/position updates or larger deltas; an agent should review, but the user is not interrupted unless validation fails.
-- `user_review_required`: high-risk changes such as timeline/soul updates, new methods, new positions, or large deltas.
-- `blocked`: private/subscriber evidence, schema mismatch, or missing required evidence fields; do not apply or commit.
+- `auto_eligible`：低风险 source / index-log 更新；validator 通过后不需要用户审阅。
+- `agent_review_required`：中风险的已有方法论/立场更新，或较大 delta；应由 agent 审阅，除非校验失败，不打断用户。
+- `user_review_required`：高风险变更，例如 timeline / soul 更新、新方法论、新立场或大 delta。
+- `blocked`：涉及私有/订阅证据、schema 不匹配或缺失必要证据字段；不能 apply 或 commit。
 
-`kol_distill.py --mode apply` applies only `auto_eligible` packs by default. It
-backs up changed files, appends source evidence with tweet ids, and writes
-`apply_result.json`. For reviewed non-auto packs, pass `--force`; blocked packs
-still refuse.
+`kol_distill.py --mode apply` 默认只应用 `auto_eligible` pack。它会备份被修改文件、追加带 tweet id 的来源证据，并写入 `apply_result.json`。对已审阅的非 auto pack，可传 `--force`；blocked pack 仍会拒绝执行。
 
-`kol_distill.py --mode validate` checks durable wiki coverage for every delta id
-and writes `validation_result.json`. `--mode commit` advances the ingest
-watermark only after validation marks the pack safe.
+`kol_distill.py --mode validate` 会检查每个 delta id 是否已覆盖到长期 wiki，并写入 `validation_result.json`。`--mode commit` 只有在 validation 标记为安全后才会推进 ingest watermark。
 
-`kol_ask.py --mode context-pack` writes only a question-specific context
-workspace under:
+`kol_ask.py --mode context-pack` 只会在下面目录写入问题专属 context workspace：
 
 ```text
 /Users/saberrao/vault/kol/<handle>/wiki/.ask_context_packs/
 ```
 
-For investment-related questions, `context-pack` includes `_index.md` and
-relevant invest wiki pages when available. It does not call a model; use the
-generated `prompt.md` with the runner of choice.
+对投资相关问题，`context-pack` 会在可用时加入 `_index.md` 和相关 invest wiki 页面。它不会调用模型；需要把生成的 `prompt.md` 交给你选择的 runner。
 
-`kol_ask.py --mode run` uses the same workspace, executes `prompt.md` through
-`--runner-command`, and writes `answer.md`. The runner must read stdin and write
-stdout. The manifest stores redacted runner metadata, not the full command.
+`kol_ask.py --mode run` 复用同一个 workspace，通过 `--runner-command` 执行 `prompt.md`，并写入 `answer.md`。runner 必须从 stdin 读取 prompt，并向 stdout 输出回答。manifest 只记录脱敏后的 runner 元数据，不保存完整命令。
 
-Bundled runner adapters:
+内置 runner adapter：
 
 ```bash
 python3 plugins/kol-tools/scripts/kol_codex_runner.py
 python3 plugins/kol-tools/scripts/kol_claude_runner.py
 ```
 
-`kol_codex_runner.py` calls `codex exec` in read-only, no-approval, ephemeral
-mode. `kol_claude_runner.py` calls `claude --print` with tools disabled and no
-session persistence. Both read prompt text from stdin and write the model answer
-to stdout.
+`kol_codex_runner.py` 会以只读、无需审批、临时会话模式调用 `codex exec`。`kol_claude_runner.py` 会调用禁用工具、无 session 持久化的 `claude --print`。两者都从 stdin 读取 prompt，并把模型回答写到 stdout。
 
-`kol_debate.py --mode prompt-pack` writes a multi-KOL debate workspace under:
+`kol_debate.py --mode prompt-pack` 会在下面目录写入多 KOL debate workspace：
 
 ```text
 /Users/saberrao/vault/kol/_cross/debates/
 ```
 
-It creates participant contexts, Round 1/2 prompts, and a synthesizer prompt, but
-does not execute the model or generate a final verdict.
+它会创建参与者上下文、Round 1/2 prompt 和 synthesizer prompt，但不会执行模型，也不会生成最终结论。
 
-`kol_debate.py --mode run` uses the same workspace shape, then executes each
-prompt through `--runner-command`. The runner must read prompt text from stdin
-and write the answer to stdout. Outputs are saved to `turns/`, `verdict.raw.md`,
-`verdict.json`, and `verdict.md`. The manifest stores only redacted runner
-metadata, not the full command string.
+`kol_debate.py --mode run` 复用相同 workspace 结构，然后通过 `--runner-command` 执行每个 prompt。runner 必须从 stdin 读取 prompt，并向 stdout 输出回答。输出会保存到 `turns/`、`verdict.raw.md`、`verdict.json` 和 `verdict.md`。manifest 只保存脱敏后的 runner 元数据，不保存完整命令字符串。
 
-## Privacy
+## 隐私
 
-Raw tweets and subscriber-only content remain private. Do not publish generated twin output as if it were written by the KOL.
+原始推文和订阅者专属内容保持私有。不要把生成的数字分身输出发布成 KOL 本人言论。
