@@ -50,3 +50,32 @@ For Claude Code:
 claude plugin marketplace add ./
 claude plugin install <plugin-name>@awesome-ai
 ```
+
+## Local Runtime Sync
+
+Use `main` as the source of truth for locally used Codex plugins. The expected
+flow for plugin changes is:
+
+1. Edit plugin source in this repository.
+2. Run targeted validation.
+3. Commit and push to `origin/main`.
+4. Refresh the local Codex plugin cache from `main`.
+
+From the repository root:
+
+```bash
+./plugins/sync-local-plugins.sh
+```
+
+The script refuses to run with a dirty worktree, fast-forwards local `main` from
+`origin/main`, reinstalls every plugin listed in `.agents/plugins/marketplace.json`,
+and verifies that each installed cache directory matches the git source exactly.
+
+Local launchd jobs should call scripts under:
+
+```text
+~/.codex/plugins/cache/awesome-ai/<plugin>/<version>/
+```
+
+Runtime config, credentials, logs, queues, cookies, and caches remain outside
+git and outside plugin source directories.
