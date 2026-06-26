@@ -488,7 +488,7 @@ Andrej Karpathy
 https://x.com/karpathy/status/123
 ```
 
-中文短内容直接展示；超过 `sinks.notification.direct_chars` 时，会调用 `sinks.notification.summary_command`。当 `settings.translate_non_chinese: true` 且原文检测为英文时，短内容也会调用摘要命令生成中文摘要，并在飞书摘要前标注 `[原文英文]`。内置摘要脚本读取环境变量里的 API key，不把 key 写入 config：
+中文短内容直接展示；超过 `sinks.notification.direct_chars` 时，会调用 `sinks.notification.summary_command`，推荐 `summary_chars: 600` 让卡片信息更饱满。当 `settings.translate_non_chinese: true` 且原文检测为英文时，短内容也会调用摘要命令生成中文摘要，并在飞书摘要前标注 `[原文英文]`。Quote tweet 会把被引用推文正文一起送入摘要，避免只看到 “Holy” 这类短反应；展示时作者自己的内容和引用内容用空行分隔，引用段以 `引用:` 标识。Twitter Monitor 卡片默认不显示底部时间/等级，把空间留给正文。内置摘要脚本读取环境变量里的 API key，不把 key 写入 config：
 
 ```text
 TWITTER_MONITOR_LLM_API_KEY

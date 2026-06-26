@@ -25,7 +25,7 @@ DEFAULT_INTERVAL_MINUTES = 60
 DEFAULT_MAX_SCAN_PER_USER = 50
 DEFAULT_WINDOW_GRACE_MINUTES = 10
 DEFAULT_NOTIFICATION_APPEND = Path.home() / ".codex/skills/notification-center/append.py"
-SUMMARY_LIMIT = 300
+SUMMARY_LIMIT = 600
 SUMMARY_TIMEOUT_SECONDS = 20
 
 
@@ -365,10 +365,20 @@ def clean_summary(text: str, limit: int = SUMMARY_LIMIT) -> str:
     return compact[: max(0, limit - 3)].rstrip() + "..."
 
 
+def clean_llm_summary(text: str, limit: int = SUMMARY_LIMIT) -> str:
+    compact = re.sub(r"[ \t\r\f\v]+", " ", text or "").strip()
+    compact = re.sub(r" *\n *", "\n", compact)
+    compact = re.sub(r"\n{3,}", "\n\n", compact)
+    if len(compact) <= limit:
+        return compact
+    return compact[: max(0, limit - 3)].rstrip() + "..."
+
+
 def detect_original_language(text: str) -> str:
-    if re.search(r"[\u3400-\u9fff]", text or ""):
-        return "zh"
+    cjk = re.findall(r"[\u3400-\u9fff]", text or "")
     letters = re.findall(r"[A-Za-z]", text or "")
+    if len(cjk) >= 4 and len(cjk) >= len(letters) * 0.1:
+        return "zh"
     compact = re.sub(r"\s+", "", text or "")
     if len(letters) >= 8 and len(letters) >= max(1, len(compact)) * 0.45:
         return "en"
@@ -391,6 +401,20 @@ def first_full_item(item: dict[str, Any], full_payload: dict[str, Any]) -> dict[
 def notification_text(item: dict[str, Any], full_payload: dict[str, Any]) -> str:
     full_item = first_full_item(item, full_payload)
     parts = [extract_text(full_item) or extract_text(item)]
+    quote = full_item.get("quote") or item.get("quote")
+    if isinstance(quote, dict):
+        quote_text = extract_text(quote)
+        if quote_text:
+            quote_author = str(quote.get("author") or "").strip()
+            quote_screen_name = str(quote.get("screen_name") or "").strip()
+            quote_label = "引用推文"
+            if quote_author and quote_screen_name:
+                quote_label = f"{quote_label} {quote_author} (@{quote_screen_name})"
+            elif quote_author:
+                quote_label = f"{quote_label} {quote_author}"
+            elif quote_screen_name:
+                quote_label = f"{quote_label} @{quote_screen_name}"
+            parts.append(f"{quote_label}: {quote_text}")
     article = full_item.get("article") or item.get("article")
     if isinstance(article, dict):
         article_text = str(
@@ -508,7 +532,7 @@ def build_notification_summary(
                     SUMMARY_TIMEOUT_SECONDS,
                 ),
             )
-            summary = clean_summary(summary, limit=summary_chars)
+            summary = clean_llm_summary(summary, limit=summary_chars)
             if summary:
                 summary = f"{label_prefix} {summary}".strip()
                 meta = {"summary_source": "llm"}
@@ -574,7 +598,7 @@ def build_notification_event(
         "tweet_id": tweet_id,
         "username": username,
         "types": content_types,
-        "display": {"hide_source_prefix": True, "hide_level": True},
+        "display": {"hide_source_prefix": True, "hide_level": True, "hide_footer": True},
         **summary_meta,
     }
     if labels:

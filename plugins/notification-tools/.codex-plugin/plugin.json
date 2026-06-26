@@ -1,0 +1,26 @@
+{
+  "name": "notification-tools",
+  "version": "0.1.0",
+  "description": "Queue, route, and dispatch local agent notifications to Feishu.",
+  "author": {
+    "name": "saberrao"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Notification Tools",
+    "shortDescription": "Queue and route local notifications.",
+    "longDescription": "Notification Tools provides a local notification-center skill for agent workflows. Producers append structured notification events into a local JSONL queue; dispatchers route Feishu cards by topic, sign webhook requests, respect quiet hours, keep target-scoped delivered sidecars, and prevent duplicate sends with a runtime lock.",
+    "developerName": "saberrao",
+    "category": "Productivity",
+    "capabilities": [
+      "Append notification events",
+      "Route Feishu messages by topic",
+      "Send one topic to multiple bots",
+      "Dispatch pending alerts",
+      "Respect quiet hours",
+      "Dedupe delivered events",
+      "Watch local files for changes"
+    ],
+    "defaultPrompt": "Queue, route, or inspect local notification-center events."
+  }
+}

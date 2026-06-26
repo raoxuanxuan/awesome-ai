@@ -54,11 +54,20 @@ def request_summary(payload: dict[str, Any]) -> str:
     max_chars = int(payload.get("max_chars") or 300)
     username = str(payload.get("username") or "")
     types = ", ".join(str(item) for item in payload.get("types") or [])
+    quote_instruction = ""
+    if "quote" in {str(item).lower() for item in payload.get("types") or []}:
+        quote_instruction = (
+            "如果内容包含引用推文，必须分成两段：第一段只概括作者自己的发言或反应；"
+            "空一行后第二段以“引用:”开头，概括被引用推文的内容和来源。"
+            "不要把引用推文内容写成作者自己的观点。"
+        )
 
     prompt = (
         "请把下面的 X/Twitter 内容摘要成适合飞书卡片阅读的中文短摘要。"
         f"最多 {max_chars} 个中文字符。"
-        "不要添加字段名、标题、项目符号、评价等级或不存在的信息；保留关键数字、公司名、ticker 和因果关系。\n\n"
+        "在不重复、不编造的前提下尽量充分，优先覆盖背景、核心观点、关键数字、公司名、ticker、因果关系和投资含义。"
+        "不要添加标题、项目符号、评价等级或不存在的信息。"
+        f"{quote_instruction}\n\n"
         f"作者: {username}\n"
         f"类型: {types}\n"
         f"内容:\n{text}"
@@ -70,7 +79,7 @@ def request_summary(payload: dict[str, Any]) -> str:
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.2,
-        "max_tokens": 300,
+        "max_tokens": min(max(300, max_chars * 2), 1200),
     }
     req = urllib.request.Request(
         base_url,

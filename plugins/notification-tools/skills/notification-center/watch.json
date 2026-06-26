@@ -1,0 +1,29 @@
+{
+  "_comment": "File-change producers for Notification Center. Dispatcher does not run these implicitly.",
+  "watchers": [
+    {
+      "source": "kol-tweets",
+      "glob": "~/vault/kol/*/raw/tweets/*.md",
+      "level": "alert",
+      "mode": "per-kol-window",
+      "summary_chars": 180,
+      "items_per_card": 5
+    },
+    {
+      "source": "ai-raw-articles",
+      "glob": "~/vault/ai/raw/articles/*.md",
+      "level": "alert",
+      "mode": "per-author-window",
+      "summary_chars": 180,
+      "items_per_card": 4
+    },
+    {
+      "source": "invest-raw-articles",
+      "glob": "~/vault/invest/raw/articles/*.md",
+      "level": "alert",
+      "mode": "per-author-window",
+      "summary_chars": 180,
+      "items_per_card": 4
+    }
+  ]
+}

@@ -120,7 +120,7 @@ sinks:
   notification:
     enabled: true
     direct_chars: 300
-    summary_chars: 300
+    summary_chars: 600
     summary_timeout_seconds: 20
     summary_command: "python3 /Users/saberrao/.codex/plugins/cache/awesome-ai/twitter-tools/0.3.0/skills/twitter-monitor/scripts/summarize_tweet.py"
   obsidian:
@@ -190,14 +190,16 @@ always the standard envelope:
      - tweet summary
      - tweet link
      - content type: `thread`, `quote`, `article`, or plain `tweet`
+   - Twitter Monitor sets `meta.display.hide_footer: true`, so Feishu cards omit the trailing time/level footer and leave more space for content.
    - The notification event includes `meta.topic` when the monitored user belongs to a configured topic.
    - If a user config has `paid: true` or `subscriber_only: true`, the notification summary is prefixed with `[付费]` and `meta.labels` includes `付费`.
    - Keep `targets: ["feishu"]`; topic-to-webhook routing belongs to `notification-center`, where one Feishu bot can serve multiple topics.
    - Summary policy:
      - If cleaned Chinese content length is within `sinks.notification.direct_chars`, show the content directly, except paid/subscriber-only users.
      - If `settings.translate_non_chinese: true` and the original content is detected as English, call the summary command even for short content, produce a Chinese summary, prefix `[原文英文]`, and set `meta.original_language: "en"`.
+     - For quote tweets, include the quoted tweet text in the summary input so short reactions like "Holy" still preserve the underlying information. Quote summaries should separate the author's own text from the quoted content with a blank line and prefix the quoted part with `引用:`.
      - For `paid: true` or `subscriber_only: true` users, always call the summary command and never fall back to sending original text.
-     - If content is longer, call `sinks.notification.summary_command` with JSON on stdin and use the returned summary.
+     - If content is longer, call `sinks.notification.summary_command` with JSON on stdin and use the returned summary. The recommended `summary_chars` is 600 to keep cards information-dense without becoming too long.
      - If no command is configured or the command fails, fall back to local truncation at `sinks.notification.summary_chars`; for paid/subscriber-only users, fall back to a link-only summary failure notice.
      - The bundled `scripts/summarize_tweet.py` uses an OpenAI-compatible chat completions API. It reads `TWITTER_MONITOR_LLM_API_KEY`, `DEEPSEEK_API_KEY`, or `OPENAI_API_KEY` from the environment and never stores keys in config.
    - Notification append is best-effort; a local notification failure should be reported but should not corrupt tweet-pool ingest state.

@@ -331,7 +331,7 @@ settings:
                 "tweet_id": "301",
                 "username": "karpathy",
                 "types": ["thread", "quote", "article"],
-                "display": {"hide_source_prefix": True, "hide_level": True},
+                "display": {"hide_source_prefix": True, "hide_level": True, "hide_footer": True},
                 "summary_source": "direct",
             },
         )
@@ -365,6 +365,43 @@ settings:
 
         summarize.assert_called_once()
         self.assertEqual(event["summary"], "[原文英文] 关于智能体工作流的短观点。")
+        self.assertEqual(event["meta"]["summary_source"], "llm")
+        self.assertEqual(event["meta"]["original_language"], "en")
+
+    def test_quote_notification_summary_includes_quoted_tweet_text(self):
+        item = tweet(
+            "307",
+            text="Holy…..",
+            is_quote=True,
+            quote={
+                "text": "18% sounds like a lot already but RAM upgrade cost went up 100%.",
+                "author": "David",
+                "screen_name": "dayonefoundry",
+            },
+        )
+        config = {
+            "settings": {"translate_non_chinese": True},
+            "sinks": {
+                "notification": {
+                    "direct_chars": 300,
+                    "summary_chars": 120,
+                    "summary_command": "/mock/summarizer",
+                }
+            },
+        }
+
+        llm_summary = "Holy…..\n\n引用: David 指出，RAM 升级费从 +$800 到 +$1600，涨幅达 100%。"
+        with mock.patch.object(monitor, "run_summary_command", return_value=llm_summary) as summarize:
+            event = monitor.build_notification_event("Damnang2", item, timeline_payload(item), config)
+
+        payload = summarize.call_args.args[1]
+        self.assertIn("Holy", payload["text"])
+        self.assertIn("引用推文 David (@dayonefoundry)", payload["text"])
+        self.assertIn("RAM upgrade cost went up 100%", payload["text"])
+        self.assertEqual(
+            event["summary"],
+            "[原文英文] Holy…..\n\n引用: David 指出，RAM 升级费从 +$800 到 +$1600，涨幅达 100%。",
+        )
         self.assertEqual(event["meta"]["summary_source"], "llm")
         self.assertEqual(event["meta"]["original_language"], "en")
 

@@ -1,0 +1,10 @@
+{
+  "name": "notification-tools",
+  "displayName": "Notification Tools",
+  "version": "0.1.0",
+  "description": "Queue, route, and dispatch local agent notifications to Feishu.",
+  "author": {
+    "name": "saberrao"
+  },
+  "skills": "./skills/"
+}

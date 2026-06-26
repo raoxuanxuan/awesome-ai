@@ -1,0 +1,20 @@
+{
+  "default": "invest",
+  "bots": {
+    "invest": {
+      "webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/...",
+      "secret": "SEC...",
+      "topics": ["invest"]
+    },
+    "ai": {
+      "webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/...",
+      "secret": "SEC...",
+      "topics": ["AI", "ClaudeCode"]
+    }
+  },
+  "topics": {
+    "invest": ["invest"],
+    "AI": ["ai"],
+    "ClaudeCode": ["ai"]
+  }
+}
