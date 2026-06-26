@@ -67,13 +67,13 @@ If `config.yaml` is missing, create it from `config.yaml.example` in this skill.
 Tweet cache belongs to `tweet-pool`:
 
 ```text
-/Users/saberrao/ai-workspace/content-creation/.tweet-pool/
+/Users/saberrao/ai-workspace/.tweet-pool/
 ```
 
 Closed timeline window snapshots also belong to `tweet-pool`:
 
 ```text
-/Users/saberrao/ai-workspace/content-creation/.tweet-pool/windows/
+/Users/saberrao/ai-workspace/.tweet-pool/windows/
 ```
 
 The timeline wrapper writes successful `twitter-fetch timeline` payloads to

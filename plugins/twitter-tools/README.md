@@ -207,7 +207,7 @@ export TWITTER_FETCH_VENV=/path/to/venv
 第一次使用 `tweet-pool` 时，需要准备推文池 runtime：
 
 ```text
-/Users/saberrao/ai-workspace/content-creation/.tweet-pool/
+/Users/saberrao/ai-workspace/.tweet-pool/
 ├── tweets/
 ├── authors/
 ├── media/

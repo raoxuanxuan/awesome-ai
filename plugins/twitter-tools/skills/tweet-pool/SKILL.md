@@ -16,7 +16,7 @@ It is not a queue, scheduler, monitor, Obsidian writer, KOL ingester, or quality
 Authoritative runtime:
 
 ```text
-/Users/saberrao/ai-workspace/content-creation/.tweet-pool/
+/Users/saberrao/ai-workspace/.tweet-pool/
 ```
 
 Override for tests or experiments:

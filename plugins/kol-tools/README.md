@@ -48,7 +48,7 @@ export KOL_TOOLS_INVEST_WIKI=/path/to/invest/wiki
 KOL refresh 还会通过 `twitter-tools/tweet-pool` 写入规范化推文缓存和 consumer 状态。默认运行时路径：
 
 ```text
-/Users/saberrao/ai-workspace/content-creation/.tweet-pool/
+/Users/saberrao/ai-workspace/.tweet-pool/
 ```
 
 测试时可覆盖：

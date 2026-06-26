@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
 
-DEFAULT_RUNTIME = Path("/Users/saberrao/ai-workspace/content-creation/.tweet-pool")
+DEFAULT_RUNTIME = Path("/Users/saberrao/ai-workspace/.tweet-pool")
 CACHE_DIRS = (
     "tweets",
     "authors",

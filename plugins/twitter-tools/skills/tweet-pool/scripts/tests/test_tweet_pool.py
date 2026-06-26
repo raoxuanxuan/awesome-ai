@@ -66,7 +66,7 @@ class TweetPoolTests(unittest.TestCase):
     def test_runtime_defaults_to_authoritative_content_creation_path(self):
         self.assertEqual(
             tweet_pool.runtime_dir({}),
-            Path("/Users/saberrao/ai-workspace/content-creation/.tweet-pool"),
+            Path("/Users/saberrao/ai-workspace/.tweet-pool"),
         )
 
     def test_ensure_runtime_creates_cache_layout(self):
