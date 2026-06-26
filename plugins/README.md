@@ -70,6 +70,9 @@ From the repository root:
 The script refuses to run with a dirty worktree, fast-forwards local `main` from
 `origin/main`, reinstalls every plugin listed in `.agents/plugins/marketplace.json`,
 and verifies that each installed cache directory matches the git source exactly.
+It also turns the historical local `~/.codex/skills/notification-center` path
+into a symlink to the installed `notification-tools` plugin skill, so both
+natural-language skill invocation and launchd jobs use plugin code.
 
 Local launchd jobs should call scripts under:
 

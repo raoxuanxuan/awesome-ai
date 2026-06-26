@@ -64,6 +64,19 @@ PY
   fi
 done
 
+notification_skill_cache="${HOME}/.codex/plugins/cache/${MARKETPLACE}/notification-tools/0.1.0/skills/notification-center"
+notification_local_skill="${HOME}/.codex/skills/notification-center"
+if [[ -d "$notification_skill_cache" ]]; then
+  if [[ -L "$notification_local_skill" ]]; then
+    rm "$notification_local_skill"
+  elif [[ -e "$notification_local_skill" ]]; then
+    backup="${notification_local_skill}.legacy.$(date +%Y%m%d%H%M%S)"
+    mv "$notification_local_skill" "$backup"
+    echo "Moved legacy notification-center skill to ${backup}."
+  fi
+  ln -s "$notification_skill_cache" "$notification_local_skill"
+fi
+
 plugin_pattern="$(printf '%s\n' $PLUGINS | paste -sd '|' -)"
 codex plugin list | rg -n "${MARKETPLACE}|${plugin_pattern}" || true
 echo "Local Codex plugin cache is synced with ${REMOTE}/${BRANCH}."
