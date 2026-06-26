@@ -342,11 +342,37 @@ def setting_int(settings: dict[str, Any], key: str, default: int, *, minimum: in
     return max(value, minimum)
 
 
+def setting_bool(settings: dict[str, Any], key: str, default: bool = False) -> bool:
+    raw = settings.get(key)
+    if raw is None or raw == "":
+        return default
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 def clean_summary(text: str, limit: int = SUMMARY_LIMIT) -> str:
     compact = re.sub(r"\s+", " ", text or "").strip()
     if len(compact) <= limit:
         return compact
     return compact[: max(0, limit - 3)].rstrip() + "..."
+
+
+def detect_original_language(text: str) -> str:
+    if re.search(r"[\u3400-\u9fff]", text or ""):
+        return "zh"
+    letters = re.findall(r"[A-Za-z]", text or "")
+    compact = re.sub(r"\s+", "", text or "")
+    if len(letters) >= 8 and len(letters) >= max(1, len(compact)) * 0.45:
+        return "en"
+    return ""
 
 
 def extract_text(value: Any) -> str:
@@ -438,14 +464,23 @@ def build_notification_summary(
     config: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     settings = notification_settings(config)
+    global_settings = (config or {}).get("settings") if isinstance(config, dict) else {}
+    if not isinstance(global_settings, dict):
+        global_settings = {}
     direct_chars = setting_int(settings, "direct_chars", SUMMARY_LIMIT)
     summary_chars = setting_int(settings, "summary_chars", SUMMARY_LIMIT)
     text = notification_text(item, full_payload)
     compact = clean_summary(text, limit=max(len(text), 1))
     labels = user_labels(username, config)
-    label_prefix = " ".join(f"[{label}]" for label in labels)
+    original_language = detect_original_language(compact)
+    translate_non_chinese = setting_bool(global_settings, "translate_non_chinese", False)
+    should_translate = translate_non_chinese and original_language == "en"
+    display_labels = list(labels)
+    if should_translate:
+        display_labels.append("原文英文")
+    label_prefix = " ".join(f"[{label}]" for label in display_labels)
     paid_content = "付费" in labels
-    if len(compact) <= direct_chars and not paid_content:
+    if len(compact) <= direct_chars and not paid_content and not should_translate:
         summary = f"{label_prefix} {compact}".strip()
         return clean_summary(summary, limit=max(direct_chars, len(label_prefix) + 1)), {
             "summary_source": "direct"
@@ -462,6 +497,7 @@ def build_notification_summary(
                     "tweet_id": str(item.get("id") or first_full_item(item, full_payload).get("id") or ""),
                     "url": str(item.get("url") or first_full_item(item, full_payload).get("url") or ""),
                     "types": content_types,
+                    "original_language": original_language,
                     "max_chars": summary_chars,
                     "text": text,
                     "item": first_full_item(item, full_payload),
@@ -475,28 +511,43 @@ def build_notification_summary(
             summary = clean_summary(summary, limit=summary_chars)
             if summary:
                 summary = f"{label_prefix} {summary}".strip()
-                return summary, {"summary_source": "llm"}
+                meta = {"summary_source": "llm"}
+                if should_translate:
+                    meta["original_language"] = original_language
+                return summary, meta
         except Exception as exc:
             if paid_content:
-                return f"{label_prefix} 摘要生成失败，请点击链接查看原文。".strip(), {
+                meta = {
                     "summary_source": "fallback",
                     "summary_error": str(exc),
                 }
+                if should_translate:
+                    meta["original_language"] = original_language
+                return f"{label_prefix} 摘要生成失败，请点击链接查看原文。".strip(), meta
             summary = f"{label_prefix} {clean_summary(text, limit=summary_chars)}".strip()
-            return clean_summary(summary, limit=max(summary_chars, len(label_prefix) + 1)), {
+            meta = {
                 "summary_source": "fallback",
                 "summary_error": str(exc),
             }
+            if should_translate:
+                meta["original_language"] = original_language
+            return clean_summary(summary, limit=max(summary_chars, len(label_prefix) + 1)), meta
 
     if paid_content:
-        return f"{label_prefix} 摘要生成失败，请点击链接查看原文。".strip(), {
+        meta = {
             "summary_source": "fallback"
         }
+        if should_translate:
+            meta["original_language"] = original_language
+        return f"{label_prefix} 摘要生成失败，请点击链接查看原文。".strip(), meta
 
     summary = f"{label_prefix} {clean_summary(text, limit=summary_chars)}".strip()
-    return clean_summary(summary, limit=max(summary_chars, len(label_prefix) + 1)), {
+    meta = {
         "summary_source": "fallback"
     }
+    if should_translate:
+        meta["original_language"] = original_language
+    return clean_summary(summary, limit=max(summary_chars, len(label_prefix) + 1)), meta
 
 
 def build_notification_event(

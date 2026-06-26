@@ -488,7 +488,7 @@ Andrej Karpathy
 https://x.com/karpathy/status/123
 ```
 
-短内容直接展示；超过 `sinks.notification.direct_chars` 时，会调用 `sinks.notification.summary_command`。内置摘要脚本读取环境变量里的 API key，不把 key 写入 config：
+中文短内容直接展示；超过 `sinks.notification.direct_chars` 时，会调用 `sinks.notification.summary_command`。当 `settings.translate_non_chinese: true` 且原文检测为英文时，短内容也会调用摘要命令生成中文摘要，并在飞书摘要前标注 `[原文英文]`。内置摘要脚本读取环境变量里的 API key，不把 key 写入 config：
 
 ```text
 TWITTER_MONITOR_LLM_API_KEY

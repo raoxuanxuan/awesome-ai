@@ -336,16 +336,37 @@ settings:
             },
         )
 
-    def test_short_notification_summary_uses_cleaned_text_without_llm(self):
-        item = tweet("302", text="Short text\nwith spacing.")
+    def test_short_chinese_notification_summary_uses_cleaned_text_without_llm(self):
+        item = tweet("302", text="短内容\n带换行。")
         config = {"sinks": {"notification": {"direct_chars": 80, "summary_chars": 40}}}
 
         with mock.patch.object(monitor, "run_summary_command") as summarize:
             event = monitor.build_notification_event("karpathy", item, timeline_payload(item), config)
 
         summarize.assert_not_called()
-        self.assertEqual(event["summary"], "Short text with spacing.")
+        self.assertEqual(event["summary"], "短内容 带换行。")
         self.assertEqual(event["meta"]["summary_source"], "direct")
+
+    def test_short_english_notification_summary_uses_llm_and_marks_original_language(self):
+        item = tweet("306", text="Short English note about agent workflows.")
+        config = {
+            "settings": {"translate_non_chinese": True},
+            "sinks": {
+                "notification": {
+                    "direct_chars": 80,
+                    "summary_chars": 80,
+                    "summary_command": "/mock/summarizer",
+                }
+            },
+        }
+
+        with mock.patch.object(monitor, "run_summary_command", return_value="关于智能体工作流的短观点。") as summarize:
+            event = monitor.build_notification_event("karpathy", item, timeline_payload(item), config)
+
+        summarize.assert_called_once()
+        self.assertEqual(event["summary"], "[原文英文] 关于智能体工作流的短观点。")
+        self.assertEqual(event["meta"]["summary_source"], "llm")
+        self.assertEqual(event["meta"]["original_language"], "en")
 
     def test_notification_event_includes_topic_when_configured(self):
         item = tweet("305")

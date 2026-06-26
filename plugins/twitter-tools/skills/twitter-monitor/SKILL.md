@@ -194,7 +194,8 @@ always the standard envelope:
    - If a user config has `paid: true` or `subscriber_only: true`, the notification summary is prefixed with `[付费]` and `meta.labels` includes `付费`.
    - Keep `targets: ["feishu"]`; topic-to-webhook routing belongs to `notification-center`, where one Feishu bot can serve multiple topics.
    - Summary policy:
-     - If cleaned content length is within `sinks.notification.direct_chars`, show the content directly, except paid/subscriber-only users.
+     - If cleaned Chinese content length is within `sinks.notification.direct_chars`, show the content directly, except paid/subscriber-only users.
+     - If `settings.translate_non_chinese: true` and the original content is detected as English, call the summary command even for short content, produce a Chinese summary, prefix `[原文英文]`, and set `meta.original_language: "en"`.
      - For `paid: true` or `subscriber_only: true` users, always call the summary command and never fall back to sending original text.
      - If content is longer, call `sinks.notification.summary_command` with JSON on stdin and use the returned summary.
      - If no command is configured or the command fails, fall back to local truncation at `sinks.notification.summary_chars`; for paid/subscriber-only users, fall back to a link-only summary failure notice.
