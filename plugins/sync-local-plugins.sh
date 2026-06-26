@@ -18,7 +18,7 @@ git fetch "$REMOTE" "$BRANCH"
 git switch "$BRANCH"
 git pull --ff-only "$REMOTE" "$BRANCH"
 
-mapfile -t PLUGINS < <(
+PLUGINS="$(
   python3 - <<'PY'
 import json
 from pathlib import Path
@@ -30,15 +30,15 @@ for plugin in data.get("plugins", []):
     if name:
         print(name)
 PY
-)
+)"
 
-for plugin in "${PLUGINS[@]}"; do
+for plugin in $PLUGINS; do
   selector="${plugin}@${MARKETPLACE}"
   codex plugin remove "$selector" >/dev/null 2>&1 || true
   codex plugin add "$selector"
 done
 
-for plugin in "${PLUGINS[@]}"; do
+for plugin in $PLUGINS; do
   version="$(
     python3 - "$plugin" <<'PY'
 import json
@@ -64,5 +64,6 @@ PY
   fi
 done
 
-codex plugin list | rg -n "${MARKETPLACE}|$(IFS='|'; echo "${PLUGINS[*]}")" || true
+plugin_pattern="$(printf '%s\n' $PLUGINS | paste -sd '|' -)"
+codex plugin list | rg -n "${MARKETPLACE}|${plugin_pattern}" || true
 echo "Local Codex plugin cache is synced with ${REMOTE}/${BRANCH}."
