@@ -37,13 +37,13 @@ Layer ownership:
 Authoritative runtime:
 
 ```text
-/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/
+/Users/saberrao/ai-workspace/.twitter-monitor/
 ```
 
 Runtime layout:
 
 ```text
-/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/
+/Users/saberrao/ai-workspace/.twitter-monitor/
 ├── config.yaml
 ├── .state.json
 ├── logs/
@@ -131,8 +131,8 @@ sinks:
 ## Workflow
 
 1. Load config and state.
-   - Config: `/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/config.yaml`.
-   - State: `/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/.state.json`.
+   - Config: `/Users/saberrao/ai-workspace/.twitter-monitor/config.yaml`.
+   - State: `/Users/saberrao/ai-workspace/.twitter-monitor/.state.json`.
    - If state is missing, initialize an empty state.
    - If state is corrupt, stop and ask before overwriting.
 2. Compute the closed monitor window.

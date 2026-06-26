@@ -12,7 +12,7 @@
 
 | 插件 | 职责 | 运行时状态 |
 | --- | --- | --- |
-| `twitter-tools` | 获取、规范化、缓存、下载媒体并监控 X/Twitter 内容。 | `/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/`、`/Users/saberrao/ai-workspace/content-creation/.tweet-pool/`、`~/.twitter-fetch/` |
+| `twitter-tools` | 获取、规范化、缓存、下载媒体并监控 X/Twitter 内容。 | `/Users/saberrao/ai-workspace/.twitter-monitor/`、`/Users/saberrao/ai-workspace/content-creation/.tweet-pool/`、`~/.twitter-fetch/` |
 | `notification-tools` | 写入本地通知事件队列，按 topic 路由，并发送飞书卡片。 | `~/vault/.notification-center/`、`~/.notification-center/feishu.json` |
 | `obsidian-tools` | 将已经规范化的外部内容写入配置好的 Obsidian vault。 | 本地 vault 配置和目标 vault |
 | `kol-tools` | 刷新、清洗、索引、蒸馏、问答和辩论私有 KOL 档案。 | `/Users/saberrao/vault/kol/` |

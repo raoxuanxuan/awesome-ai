@@ -44,7 +44,7 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 
 | 场景 | 能力 |
 | --- | --- |
-| 用户监控 | 按 `/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/config.yaml` 扫描配置用户的时间窗口内新内容 |
+| 用户监控 | 按 `/Users/saberrao/ai-workspace/.twitter-monitor/config.yaml` 扫描配置用户的时间窗口内新内容 |
 | Runner | `twitter-monitor run` 读取配置、去重、过滤、补全候选推文并更新 monitor state |
 | 窗口快照复用 | 先读 `tweet-pool window get`，finalized/空窗口不再重复请求 X |
 | 推文池缓存 | cache miss 时抓到的 timeline payload 会写入 `tweet-pool`，供其他 workflow 复用 |
@@ -166,7 +166,7 @@ claude plugin install twitter-tools@awesome-ai
 第一次使用 `twitter-monitor` 时，需要准备 monitor runtime：
 
 ```text
-/Users/saberrao/ai-workspace/content-creation/.twitter-monitor/
+/Users/saberrao/ai-workspace/.twitter-monitor/
 ├── config.yaml
 ├── .state.json
 ├── logs/

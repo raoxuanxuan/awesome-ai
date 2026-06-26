@@ -18,7 +18,7 @@ from fetch_timeline import fetch_history_window, fetch_timeline_window, ingest_t
 from twitter_fetch_runner import run_twitter_fetch
 
 
-DEFAULT_RUNTIME = Path("/Users/saberrao/ai-workspace/content-creation/.twitter-monitor")
+DEFAULT_RUNTIME = Path("/Users/saberrao/ai-workspace/.twitter-monitor")
 SEEN_STATUSES = {"saved", "skipped", "fetched"}
 SHORT_TEXT_LIMIT = 40
 DEFAULT_INTERVAL_MINUTES = 60

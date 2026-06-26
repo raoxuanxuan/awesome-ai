@@ -559,7 +559,7 @@ class TwitterFetchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             new_runtime = home / ".twitter-fetch"
-            old_runtime = home / "ai-workspace/content-creation/.twitter-monitor"
+            old_runtime = home / "ai-workspace/.twitter-monitor"
             new_runtime.mkdir()
             old_runtime.mkdir(parents=True)
             new_cookie = new_runtime / ".cookies.json"
@@ -593,7 +593,7 @@ class TwitterFetchTests(unittest.TestCase):
     def test_default_cookie_path_does_not_fall_back_to_monitor_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            old_runtime = home / "ai-workspace/content-creation/.twitter-monitor"
+            old_runtime = home / "ai-workspace/.twitter-monitor"
             old_runtime.mkdir(parents=True)
             old_cookie = old_runtime / ".cookies.json"
             old_cookie.write_text('{"auth_token":"old","ct0":"old"}')
