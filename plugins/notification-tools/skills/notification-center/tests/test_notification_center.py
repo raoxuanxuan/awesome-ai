@@ -37,7 +37,7 @@ class NotificationCenterTests(unittest.TestCase):
                     "title": "New tweet",
                     "summary": "Useful content",
                     "dedupe_key": "tweet:123",
-                    "links": ["tweet=https://x.com/u/status/123"],
+                    "links": ["https://x.com/u/status/123", "tweet=https://x.com/u/status/123"],
                     "meta": {"tweet_id": "123"},
                 },
                 now=now,
@@ -52,7 +52,13 @@ class NotificationCenterTests(unittest.TestCase):
             ]
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["dedupe_key"], "tweet:123")
-            self.assertEqual(rows[0]["links"], [{"label": "tweet", "url": "https://x.com/u/status/123"}])
+            self.assertEqual(
+                rows[0]["links"],
+                [
+                    {"label": "https://x.com/u/status/123", "url": "https://x.com/u/status/123"},
+                    {"label": "tweet", "url": "https://x.com/u/status/123"},
+                ],
+            )
             self.assertEqual(rows[0]["targets"], ["feishu"])
 
     def test_dispatch_pushes_alert_outside_quiet_and_marks_delivered(self):

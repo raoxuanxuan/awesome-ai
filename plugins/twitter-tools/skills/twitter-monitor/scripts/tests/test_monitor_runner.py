@@ -120,6 +120,7 @@ settings:
             useful = tweet("101")
             reply = tweet("102", text="@user thanks", is_reply=True, in_reply_to="1")
             short = tweet("103", text="ok")
+            opinion = tweet("104", text="所以美联储到底鹰不鹰？ Buy this dip")
             full = {
                 **timeline_payload(useful),
                 "mode": "single",
@@ -140,21 +141,22 @@ settings:
                         with mock.patch.object(
                             monitor,
                             "fetch_timeline_window",
-                            return_value=window_payload(useful, reply, short),
+                            return_value=window_payload(useful, reply, short, opinion),
                         ) as fetch_window:
                             report = monitor.run_monitor(runtime)
 
-            self.assertEqual(report["users"]["karpathy"]["timeline_count"], 3)
-            self.assertEqual(report["users"]["karpathy"]["fetched"], 1)
+            self.assertEqual(report["users"]["karpathy"]["timeline_count"], 4)
+            self.assertEqual(report["users"]["karpathy"]["fetched"], 2)
             self.assertEqual(report["users"]["karpathy"]["skipped"], 2)
             self.assertEqual(
                 calls,
                 [
                     ["single", "--url", useful["url"], "--include-thread"],
+                    ["single", "--url", opinion["url"], "--include-thread"],
                 ],
             )
             fetch_window.assert_called_once()
-            self.assertEqual(ingest_pool.call_count, 1)
+            self.assertEqual(ingest_pool.call_count, 2)
 
             state = json.loads((runtime / ".state.json").read_text())
             items = state["users"]["karpathy"]["items"]
@@ -163,6 +165,7 @@ settings:
             self.assertEqual(items["102"]["reason"], "reply")
             self.assertEqual(items["103"]["status"], "skipped")
             self.assertEqual(items["103"]["reason"], "short_no_url")
+            self.assertEqual(items["104"]["status"], "fetched")
             self.assertEqual(state["version"], 3)
             self.assertIn("last_success_at", state["users"]["karpathy"])
             self.assertIn("window_start", state["users"]["karpathy"])

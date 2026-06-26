@@ -43,7 +43,8 @@ def parse_link(value: str) -> dict[str, str]:
     if "=" in value:
         label, url = value.split("=", 1)
         return {"label": label.strip() or "link", "url": url.strip()}
-    return {"label": "link", "url": value.strip()}
+    url = value.strip()
+    return {"label": url or "link", "url": url}
 
 
 def normalize_links(raw: Any) -> list[dict[str, str]]:

@@ -21,6 +21,31 @@ from twitter_fetch_runner import run_twitter_fetch
 DEFAULT_RUNTIME = Path("/Users/saberrao/ai-workspace/.twitter-monitor")
 SEEN_STATUSES = {"saved", "skipped", "fetched"}
 SHORT_TEXT_LIMIT = 40
+SHORT_TEXT_ALLOWLIST_PATTERNS = [
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\bbuy\s+this\s+dip\b",
+        r"\bbuy\s+the\s+dip\b",
+        r"\bsell\s+the\s+rip\b",
+        r"\bhawk(?:ish)?\b",
+        r"\bdovish\b",
+        r"\bbull(?:ish)?\b",
+        r"\bbear(?:ish)?\b",
+        r"加息",
+        r"降息",
+        r"鹰",
+        r"鸽",
+        r"估值",
+        r"财报",
+        r"仓位",
+        r"风险偏好",
+        r"目标价",
+        r"买入",
+        r"卖出",
+        r"抄底",
+        r"做空",
+    )
+]
 DEFAULT_INTERVAL_MINUTES = 60
 DEFAULT_MAX_SCAN_PER_USER = 50
 DEFAULT_WINDOW_GRACE_MINUTES = 10
@@ -303,6 +328,11 @@ def has_url(text: str) -> bool:
     return bool(re.search(r"https?://|t\.co/", text))
 
 
+def looks_like_short_market_opinion(text: str) -> bool:
+    normalized = text.strip()
+    return any(pattern.search(normalized) for pattern in SHORT_TEXT_ALLOWLIST_PATTERNS)
+
+
 def skip_reason(item: dict[str, Any], settings: dict[str, Any]) -> str | None:
     if not settings.get("include_retweets", False) and item.get("is_retweet"):
         return "retweet"
@@ -316,6 +346,7 @@ def skip_reason(item: dict[str, Any], settings: dict[str, Any]) -> str | None:
         and media_count == 0
         and not item.get("media")
         and not has_url(text)
+        and not looks_like_short_market_opinion(text)
     ):
         return "short_no_url"
     return None
