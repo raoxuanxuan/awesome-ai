@@ -94,6 +94,7 @@ python3 plugins/kol-tools/scripts/kol_rollout.py --vault /Users/saberrao/vault/k
 python3 plugins/kol-tools/scripts/kol_delta.py TJ_Research --vault /Users/saberrao/vault/kol --cap 120
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode prompt-pack --policy balanced
 python3 plugins/kol-tools/scripts/kol_distill.py AswathDamodaran --vault /Users/saberrao/vault/kol --mode bootstrap-pack --pack-id AswathDamodaran-bootstrap-001 --bootstrap-limit 300 --policy conservative
+python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode repair-pack --source-pack-id delta-2069392786437087338-20260623-150543 --pack-id tj-repair-2069392786437087338
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode apply --pack-id <pack-id>
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode validate --pack-id <pack-id>
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode commit --pack-id <pack-id>

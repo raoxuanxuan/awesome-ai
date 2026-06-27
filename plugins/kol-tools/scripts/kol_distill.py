@@ -774,6 +774,19 @@ def write_prompt_pack(
     return workspace
 
 
+def info_from_repair_manifest(manifest: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "handle": manifest.get("handle"),
+        "status": "ready",
+        "delta": int(manifest.get("delta_count") or len(items)),
+        "replies": int(manifest.get("reply_count") or sum(1 for item in items if item.get("is_reply"))),
+        "watermark_old": manifest.get("watermark_old") or "",
+        "watermark_proposed": manifest.get("watermark_proposed") or "",
+        "date_range": manifest.get("date_range") or [],
+        "source": manifest.get("delta_source") or manifest.get("source") or "",
+    }
+
+
 def backup_file(path: Path, pack_id: str) -> str:
     backup = Path(f"{path}.bak-before-distill-{pack_id}-{now_compact()}")
     shutil.copy2(path, backup)
@@ -992,10 +1005,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--vault", type=Path, default=DEFAULT_VAULT)
     parser.add_argument(
         "--mode",
-        choices=("prompt-pack", "bootstrap-pack", "apply", "validate", "commit"),
+        choices=("prompt-pack", "bootstrap-pack", "repair-pack", "apply", "validate", "commit"),
         default="prompt-pack",
     )
     parser.add_argument("--pack-id", default="")
+    parser.add_argument("--source-pack-id", default="", help="existing pack to repair into a fresh pack")
     parser.add_argument("--policy", choices=tuple(POLICIES), default="balanced")
     parser.add_argument("--bootstrap-limit", type=int, default=300)
     parser.add_argument("--force", action="store_true", help="allow apply for reviewed non-auto packs; blocked packs still refuse")
@@ -1041,6 +1055,42 @@ def main(argv: list[str] | None = None) -> int:
                         "handle": args.handle,
                         "status": "bootstrap_pack_ready",
                         "workspace": str(workspace),
+                        "delta": len(items),
+                        "watermark_proposed": info.get("watermark_proposed"),
+                        "risk_level": manifest["risk_level"],
+                        "review_status": manifest["review_status"],
+                        "needs_user": manifest["needs_user"],
+                        "safe_to_auto_apply": manifest["safe_to_auto_apply"],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
+        if args.mode == "repair-pack":
+            source_pack_id = args.source_pack_id or args.pack_id
+            if not source_pack_id:
+                raise ValueError("--source-pack-id or --pack-id is required for repair-pack")
+            source_workspace, source_manifest, items = load_workspace(args.vault, args.handle, source_pack_id)
+            target_pack_id = args.pack_id or f"repair-{source_pack_id}-{now_compact()}"
+            info = info_from_repair_manifest(source_manifest, items)
+            workspace = write_prompt_pack(args.vault, args.handle, target_pack_id, info, items, args.policy, mode=args.mode)
+            manifest = read_json(workspace / "manifest.json")
+            update_manifest(
+                workspace,
+                {
+                    "source_pack_id": source_pack_id,
+                    "source_workspace": str(source_workspace),
+                    "repair_reason": "rebuilt schema bundle, risk assessment, and prompts from existing delta items",
+                },
+            )
+            print(
+                json.dumps(
+                    {
+                        "handle": args.handle,
+                        "status": "repair_pack_ready",
+                        "workspace": str(workspace),
+                        "source_workspace": str(source_workspace),
                         "delta": len(items),
                         "watermark_proposed": info.get("watermark_proposed"),
                         "risk_level": manifest["risk_level"],

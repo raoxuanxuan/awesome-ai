@@ -43,6 +43,23 @@ python3 plugins/kol-tools/scripts/kol_distill.py AswathDamodaran \
 whose routing says `distill`, and writes a high-risk review workspace. It does
 not write durable wiki pages or advance `.ingest_meta.json`.
 
+For an older prompt pack that predates `risk_assessment.json` or
+`schema_manifest.json`, create a fresh repaired pack from its existing
+`delta_items.jsonl`:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research \
+  --vault /Users/saberrao/vault/kol \
+  --mode repair-pack \
+  --source-pack-id delta-2069392786437087338-20260623-150543 \
+  --pack-id tj-repair-2069392786437087338 \
+  --policy balanced
+```
+
+`repair-pack` rebuilds the review workspace metadata, schema bundle, risk
+assessment, and prompts. It does not write durable wiki pages or advance the
+watermark.
+
 It writes:
 
 ```text

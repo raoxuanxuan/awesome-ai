@@ -360,6 +360,38 @@ class KolDistillTests(unittest.TestCase):
             self.assertEqual([row["id"] for row in rows], ["1", "3"])
             self.assertTrue((workspace / "prompts" / "00-bootstrap-wiki.md").exists())
 
+    def test_repair_pack_rebuilds_schema_and_risk_from_existing_pack(self):
+        with tempfile.TemporaryDirectory() as td:
+            vault = self.build_low_risk_vault(Path(td))
+            with redirect_stdout(StringIO()):
+                self.assertEqual(main(["h", "--vault", str(vault), "--mode", "prompt-pack", "--pack-id", "old-pack"]), 0)
+            old_workspace = vault / "h" / "wiki" / ".distill_prompt_packs" / "old-pack"
+            (old_workspace / "risk_assessment.json").unlink()
+            (old_workspace / "schema_manifest.json").unlink()
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "h",
+                    "--vault",
+                    str(vault),
+                    "--mode",
+                    "repair-pack",
+                    "--source-pack-id",
+                    "old-pack",
+                    "--pack-id",
+                    "new-pack",
+                ])
+
+            self.assertEqual(rc, 0)
+            result = json.loads(out.getvalue())
+            self.assertEqual(result["status"], "repair_pack_ready")
+            new_workspace = Path(result["workspace"])
+            self.assertTrue((new_workspace / "risk_assessment.json").exists())
+            self.assertTrue((new_workspace / "schema_manifest.json").exists())
+            self.assertTrue((new_workspace / "delta_items.jsonl").exists())
+            self.assertFalse((new_workspace / "apply_result.json").exists())
+
     def test_apply_validate_commit_low_risk_pack(self):
         with tempfile.TemporaryDirectory() as td:
             vault = self.build_low_risk_vault(Path(td))
