@@ -931,8 +931,9 @@ def validate_workspace(vault: Path, handle: str, pack_id: str) -> tuple[int, dic
     else:
         blockers.append("missing schema_manifest.json")
     blockers.extend(list(risk.get("blockers", [])))
-    schema_results = []
     apply_result_path = workspace / "apply_result.json"
+    has_apply_result = apply_result_path.exists()
+    schema_results = []
     if apply_result_path.exists():
         apply_result = read_json(apply_result_path)
         for path_value in apply_result.get("changed_files", []):
@@ -943,6 +944,8 @@ def validate_workspace(vault: Path, handle: str, pack_id: str) -> tuple[int, dic
             schema_results.append(schema_result)
             for issue in schema_result["issues"]:
                 blockers.append(f"schema issue in {schema_result['path']}: {issue}")
+    if risk.get("review_status") not in {"auto_eligible", None} and not has_apply_result:
+        blockers.append(f"review_status={risk.get('review_status')} requires reviewed apply_result before commit")
     safe = not missing_ids and not blockers
     result = {
         "handle": handle,
