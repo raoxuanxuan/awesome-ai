@@ -32,10 +32,17 @@ It writes:
 ```text
 vault/kol/<handle>/wiki/.distill_prompt_packs/<pack-id>/
 ├── manifest.json
+├── schema_manifest.json
 ├── risk_assessment.json
 ├── delta_items.jsonl
 ├── delta_brief.md
 ├── backup_plan.json
+├── schemas/
+│   ├── source.schema.md
+│   ├── method.schema.md
+│   ├── position.schema.md
+│   ├── timeline.schema.md
+│   └── soul.schema.md
 └── prompts/
     ├── 01-sources.md
     ├── 02-methods-positions.md
@@ -117,7 +124,9 @@ python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research \
 ```
 
 This writes `validation_result.json` and checks every delta tweet id appears in
-durable wiki files, not merely inside the prompt pack.
+durable wiki files, not merely inside the prompt pack. It also refuses to mark a
+pack safe when `risk_assessment.json`, `schema_manifest.json`, or copied schema
+files are missing.
 
 Commit watermark:
 

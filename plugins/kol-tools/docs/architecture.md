@@ -322,9 +322,11 @@ vault/kol/
       .distill_prompt_packs/
         <pack-id>/
           manifest.json
+          schema_manifest.json
           risk_assessment.json
           delta_items.jsonl
           delta_brief.md
+          schemas/
           prompts/
 ```
 

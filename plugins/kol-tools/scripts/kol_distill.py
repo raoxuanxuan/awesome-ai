@@ -32,6 +32,14 @@ TOPIC_RULES: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 CORE_WIKI_FILES = ("soul.md", "timeline.md", "_index.md", "_log.md")
+SCHEMA_VERSION = "1"
+SCHEMA_FILES = (
+    "source.schema.md",
+    "method.schema.md",
+    "position.schema.md",
+    "timeline.schema.md",
+    "soul.schema.md",
+)
 
 SOURCE_TARGETS: dict[str, str] = {
     "AI算力与Capex": "AI算力与芯片.md",
@@ -108,6 +116,42 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
         "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n" for row in rows),
         encoding="utf-8",
     )
+
+
+def plugin_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def schema_source_dir() -> Path:
+    return plugin_root() / "schemas"
+
+
+def copy_schema_bundle(workspace: Path) -> dict[str, Any]:
+    source_dir = schema_source_dir()
+    target_dir = workspace / "schemas"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    schemas = []
+    missing = []
+    for filename in SCHEMA_FILES:
+        source = source_dir / filename
+        target = target_dir / filename
+        if not source.exists():
+            missing.append(filename)
+            continue
+        shutil.copy2(source, target)
+        schemas.append({
+            "name": filename.removesuffix(".schema.md"),
+            "filename": filename,
+            "path": str(target),
+        })
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "source": str(source_dir),
+        "schemas": schemas,
+        "missing": missing,
+    }
+    write_json(workspace / "schema_manifest.json", manifest)
+    return manifest
 
 
 def workspace_path(vault: Path, handle: str, pack_id: str) -> Path:
@@ -583,6 +627,7 @@ def render_prompt(title: str, handle: str, workspace: Path, target_groups: dict[
             "",
             "Read these generated files first:",
             f"- `{workspace / 'manifest.json'}`",
+            f"- `{workspace / 'schema_manifest.json'}`",
             f"- `{workspace / 'delta_items.jsonl'}`",
             f"- `{workspace / 'delta_brief.md'}`",
             f"- `{workspace / 'backup_plan.json'}`",
@@ -615,6 +660,7 @@ def write_prompt_pack(
     prompts = workspace / "prompts"
     prompts.mkdir(parents=True, exist_ok=True)
 
+    schema_manifest = copy_schema_bundle(workspace)
     target_groups = build_target_groups(vault, handle, items)
     risk = build_risk_assessment(info, items, target_groups, policy)
     manifest = {
@@ -628,6 +674,7 @@ def write_prompt_pack(
         "date_range": info.get("date_range") or [],
         "delta_source": info.get("source"),
         "target_groups": target_groups,
+        "schema_manifest": schema_manifest,
         "risk_assessment": risk,
         "risk_level": risk["risk_level"],
         "review_status": risk["review_status"],
@@ -803,7 +850,25 @@ def validate_workspace(vault: Path, handle: str, pack_id: str) -> tuple[int, dic
     markdown = durable_markdown_files(wdir)
     corpus = "\n".join(path.read_text(encoding="utf-8") for path in markdown)
     missing_ids = [str(item["id"]) for item in items if str(item["id"]) not in corpus]
-    blockers = list(manifest.get("risk_assessment", {}).get("blockers", []))
+    blockers = []
+    risk_path = workspace / "risk_assessment.json"
+    schema_manifest_path = workspace / "schema_manifest.json"
+    if risk_path.exists():
+        risk = read_json(risk_path)
+    else:
+        blockers.append("missing risk_assessment.json")
+        risk = manifest.get("risk_assessment", {}) if isinstance(manifest.get("risk_assessment"), dict) else {}
+    if schema_manifest_path.exists():
+        schema_manifest = read_json(schema_manifest_path)
+        for entry in schema_manifest.get("schemas", []):
+            schema_path = Path(str(entry.get("path") or ""))
+            if not schema_path.exists():
+                blockers.append(f"missing schema file: {entry.get('filename')}")
+        for filename in schema_manifest.get("missing", []):
+            blockers.append(f"schema bundle missing source file: {filename}")
+    else:
+        blockers.append("missing schema_manifest.json")
+    blockers.extend(list(risk.get("blockers", [])))
     safe = not missing_ids and not blockers
     result = {
         "handle": handle,

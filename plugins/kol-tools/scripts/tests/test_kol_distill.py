@@ -212,6 +212,12 @@ class KolDistillTests(unittest.TestCase):
             self.assertEqual(result["status"], "prompt_pack_ready")
             workspace = Path(result["workspace"])
             self.assertTrue((workspace / "manifest.json").exists())
+            self.assertTrue((workspace / "schema_manifest.json").exists())
+            self.assertTrue((workspace / "schemas" / "source.schema.md").exists())
+            self.assertTrue((workspace / "schemas" / "method.schema.md").exists())
+            self.assertTrue((workspace / "schemas" / "position.schema.md").exists())
+            self.assertTrue((workspace / "schemas" / "timeline.schema.md").exists())
+            self.assertTrue((workspace / "schemas" / "soul.schema.md").exists())
             self.assertTrue((workspace / "delta_items.jsonl").exists())
             self.assertTrue((workspace / "delta_brief.md").exists())
             self.assertTrue((workspace / "backup_plan.json").exists())
@@ -228,6 +234,8 @@ class KolDistillTests(unittest.TestCase):
             self.assertEqual(manifest["review_status"], "user_review_required")
             self.assertTrue(manifest["needs_user"])
             self.assertIn("sources", manifest["target_groups"])
+            self.assertIn("schema_manifest", manifest)
+            self.assertEqual(manifest["schema_manifest"]["schema_version"], "1")
             self.assertTrue((workspace / "risk_assessment.json").exists())
             delta_ids = [
                 json.loads(line)["id"]
@@ -365,6 +373,58 @@ class KolDistillTests(unittest.TestCase):
             self.assertEqual(commit_result["status"], "committed")
             meta = json.loads((vault / "h" / "wiki" / ".ingest_meta.json").read_text(encoding="utf-8"))
             self.assertEqual(meta["ingest_watermark_id"], "201")
+
+    def test_validate_refuses_incomplete_pack_without_risk_or_schema_manifest(self):
+        with tempfile.TemporaryDirectory() as td:
+            vault = self.build_low_risk_vault(Path(td))
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "h",
+                    "--vault",
+                    str(vault),
+                    "--mode",
+                    "prompt-pack",
+                    "--pack-id",
+                    "incomplete-pack",
+                ])
+            self.assertEqual(rc, 0)
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "h",
+                    "--vault",
+                    str(vault),
+                    "--mode",
+                    "apply",
+                    "--pack-id",
+                    "incomplete-pack",
+                ])
+            self.assertEqual(rc, 0)
+
+            workspace = vault / "h" / "wiki" / ".distill_prompt_packs" / "incomplete-pack"
+            (workspace / "risk_assessment.json").unlink(missing_ok=True)
+            (workspace / "schema_manifest.json").unlink(missing_ok=True)
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "h",
+                    "--vault",
+                    str(vault),
+                    "--mode",
+                    "validate",
+                    "--pack-id",
+                    "incomplete-pack",
+                ])
+
+            self.assertEqual(rc, 2)
+            result = json.loads(out.getvalue())
+            self.assertEqual(result["status"], "validation_failed")
+            self.assertIn("missing risk_assessment.json", result["blockers"])
+            self.assertIn("missing schema_manifest.json", result["blockers"])
 
     def test_apply_refuses_high_risk_pack_without_force(self):
         with tempfile.TemporaryDirectory() as td:
