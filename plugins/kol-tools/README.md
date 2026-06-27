@@ -90,8 +90,10 @@ python3 plugins/kol-tools/scripts/registry_health.py --vault /Users/saberrao/vau
 python3 plugins/kol-tools/scripts/kol_pool_backfill.py --vault /Users/saberrao/vault/kol --all --dry-run
 python3 plugins/kol-tools/scripts/kol_pool_backfill.py --vault /Users/saberrao/vault/kol --all
 python3 plugins/kol-tools/scripts/kol_refresh.py --vault /Users/saberrao/vault/kol --handle TJ_Research --incremental --max-pages 1 --dry-run
+python3 plugins/kol-tools/scripts/kol_rollout.py --vault /Users/saberrao/vault/kol --dry-run
 python3 plugins/kol-tools/scripts/kol_delta.py TJ_Research --vault /Users/saberrao/vault/kol --cap 120
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode prompt-pack --policy balanced
+python3 plugins/kol-tools/scripts/kol_distill.py AswathDamodaran --vault /Users/saberrao/vault/kol --mode bootstrap-pack --pack-id AswathDamodaran-bootstrap-001 --bootstrap-limit 300 --policy conservative
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode apply --pack-id <pack-id>
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode validate --pack-id <pack-id>
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode commit --pack-id <pack-id>
