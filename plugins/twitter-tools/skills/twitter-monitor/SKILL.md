@@ -108,6 +108,7 @@ topics:
 settings:
   interval_minutes: 60
   window_grace_minutes: 10
+  kol_vault: "/Users/saberrao/vault/kol"
   max_scan_per_user: 50
   history_max_pages: 3
   include_replies: false
@@ -192,6 +193,12 @@ always the standard envelope:
      - content type: `thread`, `quote`, `article`, or plain `tweet`
    - Twitter Monitor sets `meta.display.hide_footer: true`, so Feishu cards omit the trailing time/level footer and leave more space for content.
    - The notification event includes `meta.topic` when the monitored user belongs to a configured topic.
+   - If the monitored user has a KOL Twin profile, the notification event includes `meta.author_tags`.
+     - Default KOL vault: `/Users/saberrao/vault/kol`.
+     - Overrides: `settings.kol_vault`, `TWITTER_MONITOR_KOL_VAULT`, or `KOL_TWIN_VAULT`.
+     - Resolution: `_cross/_registry.md` maps `@handle` to `vault/kol/<handle>/`, then Twitter Monitor reads `wiki/profile.json`.
+     - Supported tag fields, in order: `display_tags`, `author_tags`, `tags`, `chips`.
+     - Only the first three normalized tags are emitted; missing or invalid profiles are ignored so monitoring does not fail.
    - If a user config has `paid: true` or `subscriber_only: true`, the notification summary is prefixed with `[付费]` and `meta.labels` includes `付费`.
    - Keep `targets: ["feishu"]`; topic-to-webhook routing belongs to `notification-center`, where one Feishu bot can serve multiple topics.
    - Summary policy:

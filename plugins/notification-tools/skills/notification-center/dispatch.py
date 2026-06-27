@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -306,13 +307,37 @@ def link_lines(entry: dict[str, Any]) -> list[str]:
     return lines
 
 
+def author_tag_text(meta: dict[str, Any], limit: int = 3) -> str:
+    raw_tags = meta.get("author_tags") or []
+    if isinstance(raw_tags, str):
+        values = re.split(r"[,，/|;；]", raw_tags)
+    elif isinstance(raw_tags, list):
+        values = raw_tags
+    else:
+        values = []
+    tags: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        tag = re.sub(r"\s+", " ", str(value or "")).strip()
+        key = tag.lower()
+        if not tag or key in seen:
+            continue
+        seen.add(key)
+        tags.append(tag)
+        if len(tags) >= limit:
+            break
+    return " · ".join(tags)
+
+
 def build_card(entry: dict[str, Any]) -> dict[str, Any]:
     level = str(entry.get("level") or "info")
     source = str(entry.get("source") or "notification")
     title = str(entry.get("title") or "(untitled)")
     meta = entry.get("meta") if isinstance(entry.get("meta"), dict) else {}
     display = meta.get("display") if isinstance(meta.get("display"), dict) else {}
-    title_content = title if display.get("hide_source_prefix") else f"[{source}] {title}"
+    tags = author_tag_text(meta)
+    display_title = f"{title}  {tags}" if tags else title
+    title_content = display_title if display.get("hide_source_prefix") else f"[{source}] {display_title}"
     body_lines = []
     summary = str(entry.get("summary") or "").strip()
     if summary:

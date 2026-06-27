@@ -54,6 +54,7 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 | 内容补全 | 对候选内容调用 `twitter-fetch single --include-thread` |
 | 通知中心 | 对候选内容构造最小 review event，并通过 `notification-center/append.py --stdin` 写入本地通知队列 |
 | 飞书展示 | 通知卡片只展示作者、正文摘要、推文链接；长内容可调用 LLM 摘要，失败时本地截断兜底 |
+| KOL 画像 tag | 若用户在 KOL Twin vault 中有 `wiki/profile.json`，会读取前三个展示 tag 写入 `meta.author_tags` |
 | Obsidian 归档 | 当前不自动写入；runner 只标记 `fetched`，不会标记 `saved` |
 
 它不会做：
@@ -174,6 +175,14 @@ claude plugin install twitter-tools@awesome-ai
 ```
 
 如果 `config.yaml` 不存在，agent 应从已安装 skill 的 `config.yaml.example` 创建一份，再让用户确认监控账号和 sink 配置。历史 convenience path 应 symlink 回这个权威 runtime，当前机器上的 `~/.twitter-monitor` 就是 symlink。monitor 的 X/Twitter cookie 仍然使用 `~/.twitter-fetch/.cookies.json`。当前 runner 不自动写 Obsidian，因此运行 monitor 不需要 Obsidian vault 配置。
+
+如果需要在飞书卡片作者名旁展示主观画像 tag，`twitter-monitor` 会默认读取 KOL Twin vault：
+
+```text
+/Users/saberrao/vault/kol/<handle>/wiki/profile.json
+```
+
+解析路径来自 `/Users/saberrao/vault/kol/_cross/_registry.md`。`profile.json` 中支持 `display_tags`、`author_tags`、`tags` 或 `chips`，runner 只取前三个。可以通过 `settings.kol_vault`、`TWITTER_MONITOR_KOL_VAULT` 或 `KOL_TWIN_VAULT` 覆盖 vault 路径。
 
 `twitter-monitor` 的通知 sink 默认写入 Notification Center，而不是直接调用飞书：
 

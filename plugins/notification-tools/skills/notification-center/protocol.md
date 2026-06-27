@@ -40,7 +40,7 @@ Runtime files:
   "summary": "Twitter fetch cannot read history.",
   "links": [{"label": "tweet", "url": "https://x.com/..."}],
   "paths": ["/absolute/local/path.json"],
-  "meta": {"tweet_id": "180123", "topic": "AI"},
+  "meta": {"tweet_id": "180123", "topic": "AI", "author_tags": ["CPO", "小盘chokepoint"]},
   "targets": ["feishu"]
 }
 ```
@@ -85,6 +85,7 @@ Do not overload `paths` with URLs in new producers.
 - Appending is best-effort and should not break the primary workflow.
 - Producer state remains producer-owned. Notification Center does not own monitor `saved/skipped/failed` states.
 - Use `meta` for machine-readable fields needed by later manual actions.
+- Use `meta.author_tags` when the producer wants Feishu card titles to show concise author profile tags. Dispatcher renders at most three tags as `title  tag1 · tag2 · tag3`.
 - Use `targets` when a notification should go to a subset of dispatchers. The default is `["feishu"]`.
 - Set `meta.topic` when the event should be routed to a topic-specific Feishu bot.
 

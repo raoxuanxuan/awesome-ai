@@ -8,6 +8,7 @@ Notification Tools 为本地 agent workflow 提供通知边界。生产者 skill
 - 按 topic 路由飞书通知。
 - 支持一个 topic 推送到多个 bot，也支持一个 bot 接收多个 topic。
 - 通过 `meta.display` 隐藏飞书卡片的来源、等级或底部信息。
+- 通过 `meta.author_tags` 在飞书卡片标题里展示作者画像 tag，例如 `Serenity  CPO · 小盘chokepoint · 散户优先`。
 - 非关键告警遵守安静时间。
 - 使用按目标区分的 delivered marker 做去重。
 - 监听本地文件变化，并转换成通知事件。
@@ -91,7 +92,7 @@ python3 skills/notification-center/append.py \
   --summary "Useful content" \
   --dedupe-key "tweet:123" \
   --link "tweet=https://x.com/user/status/123" \
-  --meta '{"topic":"invest"}'
+  --meta '{"topic":"invest","author_tags":["CPO","小盘chokepoint","散户优先"]}'
 ```
 
 预览待发送飞书消息：

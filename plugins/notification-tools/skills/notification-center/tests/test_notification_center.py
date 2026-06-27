@@ -284,6 +284,29 @@ class NotificationCenterTests(unittest.TestCase):
 
         self.assertEqual(card["card"]["header"]["title"]["content"], "Andrej Karpathy")
 
+    def test_build_card_appends_author_tags_to_title(self):
+        entry = append.build_entry(
+            {
+                "source": "twitter-monitor",
+                "level": "alert",
+                "title": "Serenity",
+                "summary": "Useful content",
+                "dedupe_key": "tweet:123",
+                "meta": {
+                    "author_tags": ["CPO", "小盘chokepoint", "散户优先", "多余标签"],
+                    "display": {"hide_source_prefix": True},
+                },
+            },
+            now=datetime(2026, 6, 24, 10, 0, tzinfo=timezone(timedelta(hours=8))),
+        )
+
+        card = dispatch.build_card(entry)
+
+        self.assertEqual(
+            card["card"]["header"]["title"]["content"],
+            "Serenity  CPO · 小盘chokepoint · 散户优先",
+        )
+
     def test_build_card_shows_source_prefix_by_default(self):
         entry = append.build_entry(
             {

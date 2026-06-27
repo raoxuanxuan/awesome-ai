@@ -50,8 +50,11 @@ DEFAULT_INTERVAL_MINUTES = 60
 DEFAULT_MAX_SCAN_PER_USER = 50
 DEFAULT_WINDOW_GRACE_MINUTES = 10
 DEFAULT_NOTIFICATION_APPEND = Path.home() / ".codex/skills/notification-center/append.py"
+DEFAULT_KOL_VAULT = Path.home() / "vault/kol"
 SUMMARY_LIMIT = 600
 SUMMARY_TIMEOUT_SECONDS = 20
+AUTHOR_TAG_LIMIT = 3
+AUTHOR_TAG_CHAR_LIMIT = 24
 
 
 def now_iso() -> str:
@@ -90,6 +93,22 @@ def runtime_dir(env: dict[str, str] | None = None) -> Path:
     if override:
         return Path(override).expanduser()
     return DEFAULT_RUNTIME
+
+
+def kol_vault_dir(
+    config: dict[str, Any] | None = None,
+    env: dict[str, str] | None = None,
+) -> Path:
+    env = os.environ if env is None else env
+    override = env.get("TWITTER_MONITOR_KOL_VAULT") or env.get("KOL_TWIN_VAULT")
+    if override:
+        return Path(override).expanduser()
+    settings = (config or {}).get("settings") if isinstance(config, dict) else {}
+    if isinstance(settings, dict):
+        configured = settings.get("kol_vault") or settings.get("kol_twin_vault")
+        if configured:
+            return Path(str(configured)).expanduser()
+    return DEFAULT_KOL_VAULT
 
 
 def parse_scalar(value: str) -> Any:
@@ -233,6 +252,98 @@ def user_labels(username: str, config: dict[str, Any] | None) -> list[str]:
         seen.add(label)
         unique.append(label)
     return unique
+
+
+def normalize_tag(value: Any) -> str:
+    if isinstance(value, dict):
+        value = value.get("label") or value.get("name") or value.get("id") or ""
+    tag = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not tag:
+        return ""
+    return tag[:AUTHOR_TAG_CHAR_LIMIT].rstrip()
+
+
+def normalize_tag_list(raw_tags: Any) -> list[str]:
+    if isinstance(raw_tags, str):
+        values: list[Any] = re.split(r"[,，/|;；]", raw_tags)
+    elif isinstance(raw_tags, list):
+        values = raw_tags
+    else:
+        values = []
+    seen: set[str] = set()
+    tags: list[str] = []
+    for raw in values:
+        tag = normalize_tag(raw)
+        key = tag.lower()
+        if not tag or key in seen:
+            continue
+        seen.add(key)
+        tags.append(tag)
+        if len(tags) >= AUTHOR_TAG_LIMIT:
+            break
+    return tags
+
+
+def resolve_kol_path(raw_path: str, kol_root: Path) -> Path:
+    raw = raw_path.strip().strip("`").strip()
+    path = Path(raw).expanduser()
+    if path.is_absolute():
+        return path
+    parts = path.parts
+    if len(parts) >= 2 and parts[0] == "vault" and parts[1] == "kol":
+        return kol_root.joinpath(*parts[2:])
+    return kol_root / path
+
+
+def kol_registry_paths(kol_root: Path) -> dict[str, Path]:
+    registry = kol_root / "_cross" / "_registry.md"
+    if not registry.exists():
+        return {}
+    mapping: dict[str, Path] = {}
+    current_handle = ""
+    for raw_line in registry.read_text(encoding="utf-8").splitlines():
+        header = re.match(r"^##\s+@?([A-Za-z0-9_]+)", raw_line.strip())
+        if header:
+            current_handle = header.group(1)
+            mapping.setdefault(current_handle.lower(), kol_root / current_handle)
+            continue
+        if not current_handle:
+            continue
+        path_match = re.match(r"^-\s+path:\s+(.+)$", raw_line.strip())
+        if path_match:
+            mapping[current_handle.lower()] = resolve_kol_path(path_match.group(1), kol_root)
+    return mapping
+
+
+def profile_path_for_user(username: str, config: dict[str, Any] | None = None) -> Path | None:
+    kol_root = kol_vault_dir(config)
+    key = username.lstrip("@").lower()
+    kol_path = kol_registry_paths(kol_root).get(key, kol_root / username.lstrip("@"))
+    candidates = [
+        kol_path / "wiki" / "profile.json",
+        kol_path / "profile.json",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def author_tags_from_profile(username: str, config: dict[str, Any] | None = None) -> list[str]:
+    profile_path = profile_path_for_user(username, config)
+    if profile_path is None:
+        return []
+    try:
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(profile, dict):
+        return []
+    for key in ("display_tags", "author_tags", "tags", "chips"):
+        tags = normalize_tag_list(profile.get(key))
+        if tags:
+            return tags
+    return []
 
 
 def topic_by_user(config: dict[str, Any]) -> dict[str, str]:
@@ -625,6 +736,7 @@ def build_notification_event(
     summary, summary_meta = build_notification_summary(username, item, full_payload, config)
     topic = topic_for_user(username, config)
     labels = user_labels(username, config)
+    author_tags = author_tags_from_profile(username, config)
     meta = {
         "tweet_id": tweet_id,
         "username": username,
@@ -634,6 +746,8 @@ def build_notification_event(
     }
     if labels:
         meta["labels"] = labels
+    if author_tags:
+        meta["author_tags"] = author_tags
     if topic:
         meta["topic"] = topic
     return {

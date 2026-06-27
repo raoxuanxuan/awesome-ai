@@ -136,6 +136,9 @@ Routing rules:
 - Delivered sidecars are target-scoped for routed bots, so one event can be delivered independently to different Feishu bots.
 - Dispatcher runs hold a runtime lock. If launchd and a manual dispatch overlap, the later run exits with `locked: true` instead of sending duplicate cards.
 - Feishu card display can be controlled with `meta.display`; `hide_source_prefix`, `hide_level`, and `hide_footer` are supported.
+- Feishu card titles can show source-provided author tags via `meta.author_tags`.
+  - Example: title `Serenity` plus `meta.author_tags: ["CPO", "小盘chokepoint", "散户优先"]` renders as `Serenity  CPO · 小盘chokepoint · 散户优先`.
+  - The dispatcher renders at most three tags and does not interpret their meaning.
 - Do not commit `feishu.json`; it contains webhook URLs and secrets.
 
 ## Levels

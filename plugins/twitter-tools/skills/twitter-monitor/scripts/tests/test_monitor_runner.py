@@ -417,6 +417,42 @@ settings:
         self.assertEqual(event["meta"]["topic"], "AI")
         self.assertEqual(event["targets"], ["feishu"])
 
+    def test_notification_event_includes_author_tags_from_kol_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kol_root = Path(tmp) / "kol"
+            profile_dir = kol_root / "aleabitoreddit" / "wiki"
+            profile_dir.mkdir(parents=True)
+            (kol_root / "_cross").mkdir()
+            (kol_root / "_cross" / "_registry.md").write_text(
+                """
+## @aleabitoreddit
+
+- handle: `aleabitoreddit`
+- path: `vault/kol/aleabitoreddit/`
+""",
+                encoding="utf-8",
+            )
+            (profile_dir / "profile.json").write_text(
+                json.dumps(
+                    {
+                        "display_tags": [
+                            "CPO",
+                            "小盘chokepoint",
+                            "散户优先",
+                            "多余标签",
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            item = tweet("308", author="Serenity", screen_name="aleabitoreddit")
+            config = {"settings": {"kol_vault": str(kol_root)}}
+
+            event = monitor.build_notification_event("aleabitoreddit", item, timeline_payload(item), config)
+
+        self.assertEqual(event["meta"]["author_tags"], ["CPO", "小盘chokepoint", "散户优先"])
+
     def test_long_notification_summary_uses_llm_command(self):
         item = tweet("303", text="Long observation. " * 30)
         config = {
