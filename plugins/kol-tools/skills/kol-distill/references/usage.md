@@ -27,6 +27,22 @@ vault/kol/<handle>/wiki/.ingest_delta.json
 vault/kol/<handle>/wiki/.clean_corpus.jsonl or the source path recorded in .ingest_delta.json
 ```
 
+For a KOL that has clean/index output but no durable wiki yet, create a
+bootstrap review pack instead of requiring `.ingest_delta.json`:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_distill.py AswathDamodaran \
+  --vault /Users/saberrao/vault/kol \
+  --mode bootstrap-pack \
+  --pack-id AswathDamodaran-bootstrap-001 \
+  --bootstrap-limit 300 \
+  --policy conservative
+```
+
+`bootstrap-pack` reads `.clean_corpus.jsonl`, selects high/medium quality items
+whose routing says `distill`, and writes a high-risk review workspace. It does
+not write durable wiki pages or advance `.ingest_meta.json`.
+
 It writes:
 
 ```text
@@ -44,6 +60,7 @@ vault/kol/<handle>/wiki/.distill_prompt_packs/<pack-id>/
 │   ├── timeline.schema.md
 │   └── soul.schema.md
 └── prompts/
+    ├── 00-bootstrap-wiki.md      # bootstrap-pack only
     ├── 01-sources.md
     ├── 02-methods-positions.md
     └── 03-timeline-soul.md

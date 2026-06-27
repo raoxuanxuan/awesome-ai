@@ -301,6 +301,65 @@ class KolDistillTests(unittest.TestCase):
             risk = json.loads((Path(result["workspace"]) / "risk_assessment.json").read_text(encoding="utf-8"))
             self.assertTrue(risk["blockers"])
 
+    def test_bootstrap_pack_uses_selected_high_medium_items_without_delta_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            vault = Path(td) / "vault"
+            wiki = vault / "h" / "wiki"
+            wiki.mkdir(parents=True)
+            write_jsonl(
+                wiki / ".clean_corpus.jsonl",
+                [
+                    {
+                        "id": "1",
+                        "date": "2026-01-01",
+                        "text": "$NVDA 因为需求强",
+                        "quality": "high",
+                        "routing": {"distill": True},
+                    },
+                    {
+                        "id": "2",
+                        "date": "2026-01-02",
+                        "text": "普通闲聊",
+                        "quality": "low",
+                        "routing": {"distill": False},
+                    },
+                    {
+                        "id": "3",
+                        "date": "2026-01-03",
+                        "text": "现金流和估值是关键",
+                        "quality": "medium",
+                        "routing": {"distill": True},
+                    },
+                ],
+            )
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main([
+                    "h",
+                    "--vault",
+                    str(vault),
+                    "--mode",
+                    "bootstrap-pack",
+                    "--pack-id",
+                    "bootstrap-test",
+                    "--bootstrap-limit",
+                    "10",
+                ])
+
+            self.assertEqual(rc, 0)
+            result = json.loads(out.getvalue())
+            self.assertEqual(result["status"], "bootstrap_pack_ready")
+            self.assertEqual(result["risk_level"], "high")
+            self.assertEqual(result["review_status"], "user_review_required")
+            workspace = Path(result["workspace"])
+            rows = [
+                json.loads(line)
+                for line in (workspace / "delta_items.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual([row["id"] for row in rows], ["1", "3"])
+            self.assertTrue((workspace / "prompts" / "00-bootstrap-wiki.md").exists())
+
     def test_apply_validate_commit_low_risk_pack(self):
         with tempfile.TemporaryDirectory() as td:
             vault = self.build_low_risk_vault(Path(td))
@@ -373,6 +432,26 @@ class KolDistillTests(unittest.TestCase):
             self.assertEqual(commit_result["status"], "committed")
             meta = json.loads((vault / "h" / "wiki" / ".ingest_meta.json").read_text(encoding="utf-8"))
             self.assertEqual(meta["ingest_watermark_id"], "201")
+
+    def test_validate_reports_schema_issues_for_changed_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            vault = self.build_low_risk_vault(Path(td))
+            out = StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(main(["h", "--vault", str(vault), "--mode", "prompt-pack", "--pack-id", "schema-pack"]), 0)
+            with redirect_stdout(StringIO()):
+                self.assertEqual(main(["h", "--vault", str(vault), "--mode", "apply", "--pack-id", "schema-pack"]), 0)
+            bad_source = vault / "h" / "wiki" / "sources" / "杂感与社区互动.md"
+            bad_source.write_text("# broken\n201\n", encoding="utf-8")
+
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = main(["h", "--vault", str(vault), "--mode", "validate", "--pack-id", "schema-pack"])
+
+            result = json.loads(out.getvalue())
+            self.assertEqual(rc, 2)
+            self.assertEqual(result["status"], "validation_failed")
+            self.assertTrue(any("schema issue" in issue for issue in result["blockers"]))
 
     def test_validate_refuses_incomplete_pack_without_risk_or_schema_manifest(self):
         with tempfile.TemporaryDirectory() as td:

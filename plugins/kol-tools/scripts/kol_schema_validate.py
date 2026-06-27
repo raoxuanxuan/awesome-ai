@@ -37,7 +37,7 @@ REQUIRED_SECTIONS = {
     "soul": ["## Evidence Anchors"],
 }
 
-TWEET_ID_RE = re.compile(r"(?<!\d)\d{8,}(?!\d)")
+TWEET_ID_RE = re.compile(r"(?<!\d)\d{8,}(?!\d)|(?:status/|tweet\s+|reply\s+)\d{3,}", re.IGNORECASE)
 
 
 def infer_kind(path: Path) -> str:
