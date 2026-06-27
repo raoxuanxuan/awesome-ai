@@ -1,0 +1,25 @@
+{
+  "name": "vemus-tools",
+  "version": "0.1.0",
+  "description": "Diagnose QMX/Vemus business issues from share links, online logs, and local service code.",
+  "author": {
+    "name": "saberrao"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Vemus Tools",
+    "shortDescription": "Diagnose QMX/Vemus business issues.",
+    "longDescription": "Vemus Tools collects reusable QMX/Vemus business diagnostics for Codex. The first skill diagnoses third-party lyric cleanup issues for /v1/qmx_user_song/get_third_song_info by resolving Vemus share links, querying RMS/CLS logs, extracting raw LRC evidence, reproducing cleanup with current qmx_user_asset code, and presenting concrete raw/actual/expected lyric differences.",
+    "developerName": "saberrao",
+    "category": "Productivity",
+    "capabilities": [
+      "Resolve Vemus song share links",
+      "Build RMS/CLS lyric log queries",
+      "Extract raw LRC evidence",
+      "Compare online cleanup with current code",
+      "Show raw/actual/expected lyric differences",
+      "Diagnose QMX lyric cleanup root causes"
+    ],
+    "defaultPrompt": "Diagnose this Vemus or QMX lyric cleanup issue with online logs and current code evidence."
+  }
+}

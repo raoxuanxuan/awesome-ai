@@ -16,6 +16,7 @@
 | `notification-tools` | 写入本地通知事件队列，按 topic 路由，并发送飞书卡片。 | `~/vault/.notification-center/`、`~/.notification-center/feishu.json` |
 | `obsidian-tools` | 将已经规范化的外部内容写入配置好的 Obsidian vault。 | 本地 vault 配置和目标 vault |
 | `kol-tools` | 刷新、清洗、索引、蒸馏、问答和辩论私有 KOL 档案。 | `/Users/saberrao/vault/kol/` |
+| `vemus-tools` | 诊断 QMX/Vemus 业务问题，首版聚焦第三方歌词清洗日志、raw LRC 和当前代码复现。 | 不保存运行时状态；依赖本机 iOA/BFF 登录和本地业务仓库 |
 
 ## 边界
 
@@ -23,6 +24,7 @@
 - `notification-tools` 负责发送通知，但不抓取 Twitter/X 内容，也不写入 Obsidian 笔记。
 - `obsidian-tools` 只在源 fetcher 已经提供规范化内容之后写入知识库。
 - `kol-tools` 消费私有 KOL 档案，可以调用源 fetcher，但 KOL vault 数据保留在插件外部。
+- `vemus-tools` 只沉淀 Vemus/QMX 业务诊断流程；线上日志访问仍复用 `aik-mtp-delivery-kit`，不保存 JWT、cookies 或生产日志。
 
 ## Marketplace 文件
 

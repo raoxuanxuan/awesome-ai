@@ -1,0 +1,4 @@
+interface:
+  display_name: "QMX Lyric Log Diagnosis"
+  short_description: "Diagnose QMX lyric cleanup issues."
+  default_prompt: "查一下这个 Vemus 分享链接的第三方歌词清洗问题"

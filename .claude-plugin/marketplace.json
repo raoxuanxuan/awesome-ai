@@ -39,6 +39,15 @@
       "author": {
         "name": "saberrao"
       }
+    },
+    {
+      "name": "vemus-tools",
+      "source": "./plugins/vemus-tools",
+      "description": "Diagnose QMX/Vemus business issues from share links, online logs, and local service code.",
+      "version": "0.1.0",
+      "author": {
+        "name": "saberrao"
+      }
     }
   ]
 }
