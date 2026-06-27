@@ -84,6 +84,24 @@ python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research \
 
 ## Apply / Validate / Commit
 
+Before applying packs across an existing vault, inspect readiness:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_wiki_inventory.py \
+  --vault /Users/saberrao/vault/kol
+```
+
+Schema-check a single KOL:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_schema_validate.py TJ_Research \
+  --vault /Users/saberrao/vault/kol
+```
+
+Historical wiki pages may fail schema validation until a repair pack is
+reviewed. Treat that as rollout debt, not as permission to auto-rewrite
+`soul.md`, `timeline.md`, methods, or positions.
+
 Apply a low-risk pack:
 
 ```bash
@@ -126,7 +144,8 @@ python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research \
 This writes `validation_result.json` and checks every delta tweet id appears in
 durable wiki files, not merely inside the prompt pack. It also refuses to mark a
 pack safe when `risk_assessment.json`, `schema_manifest.json`, or copied schema
-files are missing.
+files are missing. Schema validation is part of the gate: changed durable pages
+must contain the required evidence sections and tweet-id anchors.
 
 Commit watermark:
 

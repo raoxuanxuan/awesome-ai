@@ -740,6 +740,8 @@ def render_source_append(pack_id: str, topic: str, items: list[dict[str, Any]]) 
         "",
         f"Topic: {topic}",
         "",
+        "## Evidence",
+        "",
     ]
     for item in items:
         kind = "reply" if item.get("is_reply") else "tweet"

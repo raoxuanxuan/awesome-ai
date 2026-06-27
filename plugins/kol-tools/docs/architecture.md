@@ -235,10 +235,17 @@ Workflow:
 3. Risk gate classifies the run as `auto_eligible`, `agent_review_required`,
    `user_review_required`, or `blocked`.
 4. `apply` writes durable wiki changes only when the risk gate allows it.
-5. `validate` checks that every delta tweet id is covered by durable wiki pages.
+5. `validate` checks that every delta tweet id is covered by durable wiki pages
+   and that changed durable pages satisfy the lightweight KOL wiki schema.
 6. `commit` advances `.ingest_meta.json` only after validation.
 
 The watermark must not advance before durable wiki coverage is verified.
+
+Use `kol_wiki_inventory.py` before rollout to classify each handle as an
+existing mature wiki, a partial repair candidate, a bootstrap candidate, or not
+ready. Use `kol_schema_validate.py` to make schema debt visible before a pack is
+applied; historical pages may fail schema validation until a repair pack is
+reviewed.
 
 ## Layer 6: Query Runtime
 
