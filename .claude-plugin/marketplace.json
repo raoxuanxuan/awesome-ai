@@ -39,6 +39,15 @@
       "author": {
         "name": "saberrao"
       }
+    },
+    {
+      "name": "substack-tools",
+      "source": "./plugins/substack-tools",
+      "description": "Fetch normalized Substack articles and download referenced media for downstream reading, translation, and Obsidian workflows.",
+      "version": "0.1.0",
+      "author": {
+        "name": "saberrao"
+      }
     }
   ]
 }

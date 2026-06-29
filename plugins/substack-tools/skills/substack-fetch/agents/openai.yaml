@@ -1,0 +1,4 @@
+interface:
+  display_name: "Substack Fetch"
+  short_description: "Fetch Substack articles into normalized JSON."
+  default_prompt: "Fetch this Substack article and prepare normalized content JSON."

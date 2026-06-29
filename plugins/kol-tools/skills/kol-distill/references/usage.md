@@ -27,16 +27,57 @@ vault/kol/<handle>/wiki/.ingest_delta.json
 vault/kol/<handle>/wiki/.clean_corpus.jsonl or the source path recorded in .ingest_delta.json
 ```
 
+For a KOL that has clean/index output but no durable wiki yet, create a
+bootstrap review pack instead of requiring `.ingest_delta.json`:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_distill.py AswathDamodaran \
+  --vault /Users/saberrao/vault/kol \
+  --mode bootstrap-pack \
+  --pack-id AswathDamodaran-bootstrap-001 \
+  --bootstrap-limit 300 \
+  --policy conservative
+```
+
+`bootstrap-pack` reads `.clean_corpus.jsonl`, selects high/medium quality items
+whose routing says `distill`, and writes a high-risk review workspace. It does
+not write durable wiki pages or advance `.ingest_meta.json`.
+
+For an older prompt pack that predates `risk_assessment.json` or
+`schema_manifest.json`, create a fresh repaired pack from its existing
+`delta_items.jsonl`:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research \
+  --vault /Users/saberrao/vault/kol \
+  --mode repair-pack \
+  --source-pack-id delta-2069392786437087338-20260623-150543 \
+  --pack-id tj-repair-2069392786437087338 \
+  --policy balanced
+```
+
+`repair-pack` rebuilds the review workspace metadata, schema bundle, risk
+assessment, and prompts. It does not write durable wiki pages or advance the
+watermark.
+
 It writes:
 
 ```text
 vault/kol/<handle>/wiki/.distill_prompt_packs/<pack-id>/
 ├── manifest.json
+├── schema_manifest.json
 ├── risk_assessment.json
 ├── delta_items.jsonl
 ├── delta_brief.md
 ├── backup_plan.json
+├── schemas/
+│   ├── source.schema.md
+│   ├── method.schema.md
+│   ├── position.schema.md
+│   ├── timeline.schema.md
+│   └── soul.schema.md
 └── prompts/
+    ├── 00-bootstrap-wiki.md      # bootstrap-pack only
     ├── 01-sources.md
     ├── 02-methods-positions.md
     └── 03-timeline-soul.md
@@ -76,6 +117,24 @@ python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research \
 ```
 
 ## Apply / Validate / Commit
+
+Before applying packs across an existing vault, inspect readiness:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_wiki_inventory.py \
+  --vault /Users/saberrao/vault/kol
+```
+
+Schema-check a single KOL:
+
+```bash
+python3 plugins/kol-tools/scripts/kol_schema_validate.py TJ_Research \
+  --vault /Users/saberrao/vault/kol
+```
+
+Historical wiki pages may fail schema validation until a repair pack is
+reviewed. Treat that as rollout debt, not as permission to auto-rewrite
+`soul.md`, `timeline.md`, methods, or positions.
 
 Apply a low-risk pack:
 
@@ -117,7 +176,10 @@ python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research \
 ```
 
 This writes `validation_result.json` and checks every delta tweet id appears in
-durable wiki files, not merely inside the prompt pack.
+durable wiki files, not merely inside the prompt pack. It also refuses to mark a
+pack safe when `risk_assessment.json`, `schema_manifest.json`, or copied schema
+files are missing. Schema validation is part of the gate: changed durable pages
+must contain the required evidence sections and tweet-id anchors.
 
 Commit watermark:
 

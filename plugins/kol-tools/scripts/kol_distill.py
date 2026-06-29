@@ -19,6 +19,7 @@ from typing import Any
 
 from kol_common import DEFAULT_VAULT, wiki_dir
 from kol_delta import commit as commit_delta
+from kol_schema_validate import validate_file
 
 
 TOPIC_RULES: list[tuple[str, tuple[str, ...]]] = [
@@ -32,6 +33,14 @@ TOPIC_RULES: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 CORE_WIKI_FILES = ("soul.md", "timeline.md", "_index.md", "_log.md")
+SCHEMA_VERSION = "1"
+SCHEMA_FILES = (
+    "source.schema.md",
+    "method.schema.md",
+    "position.schema.md",
+    "timeline.schema.md",
+    "soul.schema.md",
+)
 
 SOURCE_TARGETS: dict[str, str] = {
     "AI算力与Capex": "AI算力与芯片.md",
@@ -108,6 +117,42 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
         "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n" for row in rows),
         encoding="utf-8",
     )
+
+
+def plugin_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def schema_source_dir() -> Path:
+    return plugin_root() / "schemas"
+
+
+def copy_schema_bundle(workspace: Path) -> dict[str, Any]:
+    source_dir = schema_source_dir()
+    target_dir = workspace / "schemas"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    schemas = []
+    missing = []
+    for filename in SCHEMA_FILES:
+        source = source_dir / filename
+        target = target_dir / filename
+        if not source.exists():
+            missing.append(filename)
+            continue
+        shutil.copy2(source, target)
+        schemas.append({
+            "name": filename.removesuffix(".schema.md"),
+            "filename": filename,
+            "path": str(target),
+        })
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "source": str(source_dir),
+        "schemas": schemas,
+        "missing": missing,
+    }
+    write_json(workspace / "schema_manifest.json", manifest)
+    return manifest
 
 
 def workspace_path(vault: Path, handle: str, pack_id: str) -> Path:
@@ -202,6 +247,19 @@ def load_delta_items(info: dict[str, Any]) -> list[dict[str, Any]]:
     else:
         rows.sort(key=lambda item: int(item["id"]) if str(item["id"]).isdigit() else item["id"])
     return rows
+
+
+def load_bootstrap_items(vault: Path, handle: str, limit: int) -> list[dict[str, Any]]:
+    clean = wiki_dir(vault, handle) / ".clean_corpus.jsonl"
+    if not clean.exists():
+        raise FileNotFoundError(f"missing clean corpus: {clean}")
+    rows = []
+    for row in load_jsonl(clean):
+        routing = row.get("routing") if isinstance(row.get("routing"), dict) else {}
+        if row.get("quality") in {"high", "medium"} and routing.get("distill"):
+            rows.append(normalize_item(row))
+    rows.sort(key=lambda item: (item.get("quality") != "high", item.get("date", ""), item.get("id", "")))
+    return rows[:limit]
 
 
 def normalize_item(row: dict[str, Any]) -> dict[str, Any]:
@@ -446,6 +504,11 @@ def build_risk_assessment(
         risk_level = "blocked"
         review_status = "blocked"
         needs_user = True
+    elif info.get("watermark_old") == "bootstrap":
+        reasons.append("bootstrap wiki compile requires review before durable writes")
+        risk_level = "high"
+        review_status = "user_review_required"
+        needs_user = True
     elif (
         delta_count > policy["agent_delta_max"]
         or new_methods
@@ -583,6 +646,7 @@ def render_prompt(title: str, handle: str, workspace: Path, target_groups: dict[
             "",
             "Read these generated files first:",
             f"- `{workspace / 'manifest.json'}`",
+            f"- `{workspace / 'schema_manifest.json'}`",
             f"- `{workspace / 'delta_items.jsonl'}`",
             f"- `{workspace / 'delta_brief.md'}`",
             f"- `{workspace / 'backup_plan.json'}`",
@@ -602,6 +666,27 @@ def render_prompt(title: str, handle: str, workspace: Path, target_groups: dict[
     )
 
 
+def render_bootstrap_prompt(handle: str, workspace: Path, target_groups: dict[str, Any]) -> str:
+    template = (plugin_root() / "templates" / "bootstrap-wiki-prompt.md").read_text(encoding="utf-8")
+    return "\n".join(
+        [
+            template.rstrip(),
+            "",
+            "## Generated Context",
+            "",
+            f"- handle: `{handle}`",
+            f"- workspace: `{workspace}`",
+            "",
+            "## Suggested Targets",
+            "",
+            "```json",
+            json.dumps(target_groups, ensure_ascii=False, indent=2),
+            "```",
+            "",
+        ]
+    )
+
+
 def write_prompt_pack(
     vault: Path,
     handle: str,
@@ -609,17 +694,20 @@ def write_prompt_pack(
     info: dict[str, Any],
     items: list[dict[str, Any]],
     policy: str,
+    *,
+    mode: str = "prompt-pack",
 ) -> Path:
     wdir = wiki_dir(vault, handle)
     workspace = wdir / ".distill_prompt_packs" / pack_id
     prompts = workspace / "prompts"
     prompts.mkdir(parents=True, exist_ok=True)
 
+    schema_manifest = copy_schema_bundle(workspace)
     target_groups = build_target_groups(vault, handle, items)
     risk = build_risk_assessment(info, items, target_groups, policy)
     manifest = {
         "handle": handle,
-        "mode": "prompt-pack",
+        "mode": mode,
         "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "delta_count": len(items),
         "reply_count": sum(1 for item in items if item.get("is_reply")),
@@ -628,6 +716,7 @@ def write_prompt_pack(
         "date_range": info.get("date_range") or [],
         "delta_source": info.get("source"),
         "target_groups": target_groups,
+        "schema_manifest": schema_manifest,
         "risk_assessment": risk,
         "risk_level": risk["risk_level"],
         "review_status": risk["review_status"],
@@ -643,6 +732,11 @@ def write_prompt_pack(
         encoding="utf-8",
     )
     write_json(workspace / "backup_plan.json", build_backup_plan(vault, handle, target_groups))
+    if mode == "bootstrap-pack":
+        (prompts / "00-bootstrap-wiki.md").write_text(
+            render_bootstrap_prompt(handle, workspace, target_groups),
+            encoding="utf-8",
+        )
     (prompts / "01-sources.md").write_text(
         render_prompt(
             "Sources Update Prompt",
@@ -680,6 +774,19 @@ def write_prompt_pack(
     return workspace
 
 
+def info_from_repair_manifest(manifest: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "handle": manifest.get("handle"),
+        "status": "ready",
+        "delta": int(manifest.get("delta_count") or len(items)),
+        "replies": int(manifest.get("reply_count") or sum(1 for item in items if item.get("is_reply"))),
+        "watermark_old": manifest.get("watermark_old") or "",
+        "watermark_proposed": manifest.get("watermark_proposed") or "",
+        "date_range": manifest.get("date_range") or [],
+        "source": manifest.get("delta_source") or manifest.get("source") or "",
+    }
+
+
 def backup_file(path: Path, pack_id: str) -> str:
     backup = Path(f"{path}.bak-before-distill-{pack_id}-{now_compact()}")
     shutil.copy2(path, backup)
@@ -692,6 +799,8 @@ def render_source_append(pack_id: str, topic: str, items: list[dict[str, Any]]) 
         f"## Distill Update: {pack_id}",
         "",
         f"Topic: {topic}",
+        "",
+        "## Evidence",
         "",
     ]
     for item in items:
@@ -803,7 +912,40 @@ def validate_workspace(vault: Path, handle: str, pack_id: str) -> tuple[int, dic
     markdown = durable_markdown_files(wdir)
     corpus = "\n".join(path.read_text(encoding="utf-8") for path in markdown)
     missing_ids = [str(item["id"]) for item in items if str(item["id"]) not in corpus]
-    blockers = list(manifest.get("risk_assessment", {}).get("blockers", []))
+    blockers = []
+    risk_path = workspace / "risk_assessment.json"
+    schema_manifest_path = workspace / "schema_manifest.json"
+    if risk_path.exists():
+        risk = read_json(risk_path)
+    else:
+        blockers.append("missing risk_assessment.json")
+        risk = manifest.get("risk_assessment", {}) if isinstance(manifest.get("risk_assessment"), dict) else {}
+    if schema_manifest_path.exists():
+        schema_manifest = read_json(schema_manifest_path)
+        for entry in schema_manifest.get("schemas", []):
+            schema_path = Path(str(entry.get("path") or ""))
+            if not schema_path.exists():
+                blockers.append(f"missing schema file: {entry.get('filename')}")
+        for filename in schema_manifest.get("missing", []):
+            blockers.append(f"schema bundle missing source file: {filename}")
+    else:
+        blockers.append("missing schema_manifest.json")
+    blockers.extend(list(risk.get("blockers", [])))
+    apply_result_path = workspace / "apply_result.json"
+    has_apply_result = apply_result_path.exists()
+    schema_results = []
+    if apply_result_path.exists():
+        apply_result = read_json(apply_result_path)
+        for path_value in apply_result.get("changed_files", []):
+            path = Path(str(path_value))
+            if path.suffix != ".md" or not path.exists():
+                continue
+            schema_result = validate_file(path)
+            schema_results.append(schema_result)
+            for issue in schema_result["issues"]:
+                blockers.append(f"schema issue in {schema_result['path']}: {issue}")
+    if risk.get("review_status") not in {"auto_eligible", None} and not has_apply_result:
+        blockers.append(f"review_status={risk.get('review_status')} requires reviewed apply_result before commit")
     safe = not missing_ids and not blockers
     result = {
         "handle": handle,
@@ -812,6 +954,7 @@ def validate_workspace(vault: Path, handle: str, pack_id: str) -> tuple[int, dic
         "pack_id": pack_id,
         "checked_files": [str(path) for path in markdown],
         "missing_ids": missing_ids,
+        "schema_results": schema_results,
         "blockers": blockers,
         "safe_to_commit_watermark": safe,
         "validated_at": now_iso(),
@@ -863,9 +1006,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Prepare KOL distillation workspaces")
     parser.add_argument("handle")
     parser.add_argument("--vault", type=Path, default=DEFAULT_VAULT)
-    parser.add_argument("--mode", choices=("prompt-pack", "apply", "validate", "commit"), default="prompt-pack")
+    parser.add_argument(
+        "--mode",
+        choices=("prompt-pack", "bootstrap-pack", "repair-pack", "apply", "validate", "commit"),
+        default="prompt-pack",
+    )
     parser.add_argument("--pack-id", default="")
+    parser.add_argument("--source-pack-id", default="", help="existing pack to repair into a fresh pack")
     parser.add_argument("--policy", choices=tuple(POLICIES), default="balanced")
+    parser.add_argument("--bootstrap-limit", type=int, default=300)
     parser.add_argument("--force", action="store_true", help="allow apply for reviewed non-auto packs; blocked packs still refuse")
     return parser
 
@@ -886,6 +1035,77 @@ def main(argv: list[str] | None = None) -> int:
             rc, result = commit_workspace(args.vault, args.handle, args.pack_id)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return rc
+        if args.mode == "bootstrap-pack":
+            items = load_bootstrap_items(args.vault, args.handle, args.bootstrap_limit)
+            dates = sorted(item["date"] for item in items if item.get("date"))
+            watermark_proposed = max((str(item["id"]) for item in items), default="bootstrap")
+            info = {
+                "handle": args.handle,
+                "status": "ready",
+                "delta": len(items),
+                "replies": sum(1 for item in items if item.get("is_reply")),
+                "watermark_old": "bootstrap",
+                "watermark_proposed": watermark_proposed,
+                "date_range": [dates[0], dates[-1]] if dates else [],
+                "source": str(wiki_dir(args.vault, args.handle) / ".clean_corpus.jsonl"),
+            }
+            pack_id = args.pack_id or f"bootstrap-{now_compact()}"
+            workspace = write_prompt_pack(args.vault, args.handle, pack_id, info, items, args.policy, mode=args.mode)
+            manifest = read_json(workspace / "manifest.json")
+            print(
+                json.dumps(
+                    {
+                        "handle": args.handle,
+                        "status": "bootstrap_pack_ready",
+                        "workspace": str(workspace),
+                        "delta": len(items),
+                        "watermark_proposed": info.get("watermark_proposed"),
+                        "risk_level": manifest["risk_level"],
+                        "review_status": manifest["review_status"],
+                        "needs_user": manifest["needs_user"],
+                        "safe_to_auto_apply": manifest["safe_to_auto_apply"],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
+        if args.mode == "repair-pack":
+            source_pack_id = args.source_pack_id or args.pack_id
+            if not source_pack_id:
+                raise ValueError("--source-pack-id or --pack-id is required for repair-pack")
+            source_workspace, source_manifest, items = load_workspace(args.vault, args.handle, source_pack_id)
+            target_pack_id = args.pack_id or f"repair-{source_pack_id}-{now_compact()}"
+            info = info_from_repair_manifest(source_manifest, items)
+            workspace = write_prompt_pack(args.vault, args.handle, target_pack_id, info, items, args.policy, mode=args.mode)
+            manifest = read_json(workspace / "manifest.json")
+            update_manifest(
+                workspace,
+                {
+                    "source_pack_id": source_pack_id,
+                    "source_workspace": str(source_workspace),
+                    "repair_reason": "rebuilt schema bundle, risk assessment, and prompts from existing delta items",
+                },
+            )
+            print(
+                json.dumps(
+                    {
+                        "handle": args.handle,
+                        "status": "repair_pack_ready",
+                        "workspace": str(workspace),
+                        "source_workspace": str(source_workspace),
+                        "delta": len(items),
+                        "watermark_proposed": info.get("watermark_proposed"),
+                        "risk_level": manifest["risk_level"],
+                        "review_status": manifest["review_status"],
+                        "needs_user": manifest["needs_user"],
+                        "safe_to_auto_apply": manifest["safe_to_auto_apply"],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
 
         info = load_delta_info(args.vault, args.handle)
         items = load_delta_items(info)

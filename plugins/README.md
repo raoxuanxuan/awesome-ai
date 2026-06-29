@@ -15,6 +15,7 @@
 | `twitter-tools` | 获取、规范化、缓存、下载媒体并监控 X/Twitter 内容。 | `/Users/saberrao/ai-workspace/.twitter-monitor/`、`/Users/saberrao/ai-workspace/.tweet-pool/`、`~/.twitter-fetch/` |
 | `notification-tools` | 写入本地通知事件队列，按 topic 路由，并发送飞书卡片。 | `~/vault/.notification-center/`、`~/.notification-center/feishu.json` |
 | `obsidian-tools` | 将已经规范化的外部内容写入配置好的 Obsidian vault。 | 本地 vault 配置和目标 vault |
+| `substack-tools` | 抓取并规范化 Substack 文章，下载引用图片，供本地阅读、翻译和 Obsidian 入库使用。 | 默认由调用方指定输出目录，如 `~/Downloads/substack/` |
 | `kol-tools` | 刷新、清洗、索引、蒸馏、问答和辩论私有 KOL 档案。 | `/Users/saberrao/vault/kol/` |
 
 ## 边界
@@ -22,6 +23,7 @@
 - `twitter-tools` 负责抓取和监控外部社交内容，但不直接发送飞书消息。
 - `notification-tools` 负责发送通知，但不抓取 Twitter/X 内容，也不写入 Obsidian 笔记。
 - `obsidian-tools` 只在源 fetcher 已经提供规范化内容之后写入知识库。
+- `substack-tools` 只抓取 Substack 原文和媒体；中文翻译、摘要和 vault 写入交给 `content-to-obsidian`。
 - `kol-tools` 消费私有 KOL 档案，可以调用源 fetcher，但 KOL vault 数据保留在插件外部。
 
 ## Marketplace 文件

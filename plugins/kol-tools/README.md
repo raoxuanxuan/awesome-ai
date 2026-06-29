@@ -12,6 +12,12 @@ KOL Tools 是一个同时面向 Codex 和 Claude Code 的私有 KOL 数字分身
 - 在更新 KOL wiki 前生成带风险分级的蒸馏 prompt pack。
 - 提供 KOL ask 和 debate workflow 的 prompt 与脚本。
 
+## 架构
+
+整体设计见 [docs/architecture.md](docs/architecture.md)。KOL Tools 使用
+Karpathy-style LLM Wiki 作为长期 Markdown 记忆层，并在其上增加
+KOL-specific evidence、persona、stance、timeline 和 incremental audit 层。
+
 ## 不做什么
 
 - 不在本插件内实现底层 X/Twitter 抓取或全局推文缓存；这些能力由 `twitter-tools/twitter-fetch` 和 `twitter-tools/tweet-pool` 提供。
@@ -84,8 +90,11 @@ python3 plugins/kol-tools/scripts/registry_health.py --vault /Users/saberrao/vau
 python3 plugins/kol-tools/scripts/kol_pool_backfill.py --vault /Users/saberrao/vault/kol --all --dry-run
 python3 plugins/kol-tools/scripts/kol_pool_backfill.py --vault /Users/saberrao/vault/kol --all
 python3 plugins/kol-tools/scripts/kol_refresh.py --vault /Users/saberrao/vault/kol --handle TJ_Research --incremental --max-pages 1 --dry-run
+python3 plugins/kol-tools/scripts/kol_rollout.py --vault /Users/saberrao/vault/kol --dry-run
 python3 plugins/kol-tools/scripts/kol_delta.py TJ_Research --vault /Users/saberrao/vault/kol --cap 120
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode prompt-pack --policy balanced
+python3 plugins/kol-tools/scripts/kol_distill.py AswathDamodaran --vault /Users/saberrao/vault/kol --mode bootstrap-pack --pack-id AswathDamodaran-bootstrap-001 --bootstrap-limit 300 --policy conservative
+python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode repair-pack --source-pack-id delta-2069392786437087338-20260623-150543 --pack-id tj-repair-2069392786437087338
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode apply --pack-id <pack-id>
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode validate --pack-id <pack-id>
 python3 plugins/kol-tools/scripts/kol_distill.py TJ_Research --vault /Users/saberrao/vault/kol --mode commit --pack-id <pack-id>
