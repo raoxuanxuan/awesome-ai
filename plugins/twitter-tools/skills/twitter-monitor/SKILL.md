@@ -111,6 +111,7 @@ settings:
   kol_vault: "/Users/saberrao/vault/kol"
   max_scan_per_user: 50
   history_max_pages: 3
+  topic_relevance_filter: true
   include_replies: false
   include_retweets: false
   expand_thread: true
@@ -179,6 +180,11 @@ always the standard envelope:
    - Skip pure retweets when `include_retweets: false`.
    - Skip short non-quote posts with no URL when unlikely to carry durable value.
    - Do not skip short posts containing `http` or `t.co`; they may be X Articles or link posts.
+   - When `topic_relevance_filter: true` (default), apply deterministic topic relevance filtering before full fetch.
+     - Current topic-specific filter: `invest`.
+     - `invest` content must contain investment, market, financial, ticker, portfolio, macro-market, or industry-chain signals in the tweet, quote, or article text.
+     - Obvious lifestyle quote tweets, consumer product complaints, property anecdotes, and vehicle gadget commentary are skipped with reason `topic_irrelevant`.
+     - Non-`invest` topics are not filtered by this rule.
    - If `mark_skipped_as_seen: true`, write skipped status to state with reason.
 7. Fetch complete content for each candidate.
    - For default `timeline` users, use `twitter-fetch single --url <url> --include-thread --pretty`.

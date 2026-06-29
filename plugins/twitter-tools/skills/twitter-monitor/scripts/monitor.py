@@ -46,6 +46,19 @@ SHORT_TEXT_ALLOWLIST_PATTERNS = [
         r"做空",
     )
 ]
+INVEST_RELEVANCE_PATTERNS = [
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\$[A-Za-z]{1,6}(?:\b|[._-])",
+        r"\b[A-Z]{2,6}\s+(?:stock|shares|earnings|revenue|eps|guidance|capex)\b",
+        r"\b(?:stock|stocks|shares|equity|equities|earnings|revenue|profit|margin|cash flow|fcf|eps|pe|p/e|valuation|guidance|capex|market cap|buyback|dividend|portfolio|position|long|short|bullish|bearish)\b",
+        r"美股|A股|港股|股票|个股|股价|股市|大盘|纳指|标普|道指|期权|仓位|持仓|建仓|减仓|加仓|清仓|做多|做空",
+        r"财报|营收|收入|利润|毛利|净利|现金流|自由现金流|EPS|PE|PS|PB|估值|市值|目标价|回购|分红|指引",
+        r"订单|出货|产能|良率|供应链|产业链|半导体|芯片|HBM|DRAM|晶圆|光模块|CPO|GPU|ASIC",
+        r"降息|加息|利率|美债|收益率|通胀数据|CPI|PCE|非农|流动性|衰退|信用利差",
+        r"SEC|IPO|并购|收购|拆分|增发|稀释|可转债|债务|融资",
+    )
+]
 DEFAULT_INTERVAL_MINUTES = 60
 DEFAULT_MAX_SCAN_PER_USER = 50
 DEFAULT_WINDOW_GRACE_MINUTES = 10
@@ -444,11 +457,43 @@ def looks_like_short_market_opinion(text: str) -> bool:
     return any(pattern.search(normalized) for pattern in SHORT_TEXT_ALLOWLIST_PATTERNS)
 
 
-def skip_reason(item: dict[str, Any], settings: dict[str, Any]) -> str | None:
+def relevance_text(item: dict[str, Any]) -> str:
+    parts = [str(item.get("full_text") or item.get("text") or "").strip()]
+    quote = item.get("quote")
+    if isinstance(quote, dict):
+        parts.append(str(quote.get("full_text") or quote.get("text") or "").strip())
+    article = item.get("article")
+    if isinstance(article, dict):
+        parts.append(
+            str(
+                article.get("title")
+                or article.get("headline")
+                or article.get("body")
+                or article.get("text")
+                or ""
+            ).strip()
+        )
+    return "\n".join(part for part in parts if part)
+
+
+def is_topic_relevant(item: dict[str, Any], topic: str) -> bool:
+    if topic.strip().lower() != "invest":
+        return True
+    text = relevance_text(item)
+    return any(pattern.search(text) for pattern in INVEST_RELEVANCE_PATTERNS)
+
+
+def topic_relevance_enabled(settings: dict[str, Any]) -> bool:
+    return setting_bool(settings, "topic_relevance_filter", True)
+
+
+def skip_reason(item: dict[str, Any], settings: dict[str, Any], topic: str = "") -> str | None:
     if not settings.get("include_retweets", False) and item.get("is_retweet"):
         return "retweet"
     if not settings.get("include_replies", False) and item.get("is_reply") and not item.get("is_quote"):
         return "reply"
+    if topic and topic_relevance_enabled(settings) and not is_topic_relevant(item, topic):
+        return "topic_irrelevant"
     text = (item.get("full_text") or item.get("text") or "").strip()
     media_count = int(item.get("media_count") or 0)
     if (
@@ -839,6 +884,7 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
     settings = config.get("settings") or {}
     limit = scan_limit(settings)
     fetch_mode = user_fetch_mode(username, config)
+    topic = topic_for_user(username, config)
     history_max_pages = setting_int(settings, "history_max_pages", 3)
     expand_thread = bool(settings.get("expand_thread", True))
     mark_skipped = bool(settings.get("mark_skipped_as_seen", True))
@@ -905,7 +951,7 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
         if item_status(user_entry, tweet_id) in SEEN_STATUSES:
             report["already_seen"] += 1
             continue
-        reason = skip_reason(item, settings)
+        reason = skip_reason(item, settings, topic=topic)
         if reason:
             report["skipped"] += 1
             if mark_skipped:

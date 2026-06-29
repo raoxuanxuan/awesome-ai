@@ -42,6 +42,7 @@ settings:
   window_grace_minutes: 10
   max_scan_per_user: 50
   history_max_pages: 3
+  topic_relevance_filter: true
   include_replies: false
   include_retweets: false
   expand_thread: true

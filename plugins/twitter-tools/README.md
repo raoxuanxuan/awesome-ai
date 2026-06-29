@@ -50,7 +50,7 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 | 推文池缓存 | cache miss 时抓到的 timeline payload 会写入 `tweet-pool`，供其他 workflow 复用 |
 | 标准输出 | `fetch_timeline.py` 直接输出 `twitter-fetch` 标准 envelope，不再输出旧版 `username/tweets/tweet_count` |
 | 时间窗口 | 每轮检查上一个已关闭 interval，`window_grace_minutes` 控制整点后延迟确认 |
-| 新内容过滤 | 根据 state 去重，过滤低价值短推和纯转推 |
+| 新内容过滤 | 根据 state 去重，过滤低价值短推、纯转推，以及明显不属于当前 topic 的内容 |
 | 内容补全 | 对候选内容调用 `twitter-fetch single --include-thread` |
 | 通知中心 | 对候选内容构造最小 review event，并通过 `notification-center/append.py --stdin` 写入本地通知队列 |
 | 飞书展示 | 通知卡片只展示作者、正文摘要、推文链接；长内容可调用 LLM 摘要，失败时本地截断兜底 |
@@ -69,6 +69,18 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 - `twitter-monitor` 不直接请求飞书 webhook；飞书签名、安静时间、去重和实际发送属于 `notification-center`。
 - `twitter-fetch` 不下载图片；需要下载媒体时使用 `twitter-media-fetch`。
 - 不保存非 Twitter 平台数据。
+
+## Topic 相关性过滤
+
+`twitter-monitor` 默认开启 `settings.topic_relevance_filter: true`。第一版是确定性规则，不调用 LLM：
+
+- 当前只对 `invest` topic 生效。
+- 会检查 tweet 正文、quote 文本和 article 文本。
+- 只有出现投资、市场、财务、ticker、仓位、宏观市场、产业链等强信号时才继续处理。
+- 明显生活化的 quote tweet，例如手机升级、北京房子亏损、车载咖啡机吐槽，会以 `topic_irrelevant` 标记为 skipped。
+- 非 `invest` topic 不受这条规则影响。
+
+如果后续发现误杀，可以先补关键词；如果噪音仍多，再升级成 LLM 二级相关性判断。
 
 ## 目录结构
 

@@ -97,6 +97,57 @@ class MonitorRunnerTests(unittest.TestCase):
         self.assertEqual(monitor.topic_for_user("@Money_or_Life_X", config), "invest")
         self.assertEqual(monitor.topic_for_user("unknown", config), "")
 
+    def test_skip_reason_filters_invest_topic_irrelevant_quote(self):
+        item = tweet(
+            "901",
+            text="兄弟，还没卖？",
+            is_quote=True,
+            quote={
+                "text": "太太告诉我，我们北京的房子已经亏了 220 万。",
+                "author": "zzxwill",
+                "screen_name": "zzxwill",
+            },
+        )
+        settings = {"include_replies": False, "include_retweets": False}
+
+        self.assertEqual(
+            monitor.skip_reason(item, settings, topic="invest"),
+            "topic_irrelevant",
+        )
+
+    def test_skip_reason_filters_consumer_quote_with_weak_industry_words(self):
+        item = tweet(
+            "903",
+            text="我等着买新手机，因为太多会员平台太多群，我一个手机不够用！",
+            is_quote=True,
+            quote={
+                "text": "苹果随身产品涨价，Apple TV 涨 50%，音响涨 30%，以后存储周期也不会下调。等 AGI 出来，人手一箱内存。",
+                "author": "勃勃OC",
+                "screen_name": "bboczeng",
+            },
+        )
+        settings = {"include_replies": False, "include_retweets": False}
+
+        self.assertEqual(
+            monitor.skip_reason(item, settings, topic="invest"),
+            "topic_irrelevant",
+        )
+
+    def test_skip_reason_keeps_invest_relevant_quote(self):
+        item = tweet(
+            "902",
+            text="这轮 AI capex 继续推高半导体订单。",
+            is_quote=True,
+            quote={
+                "text": "$NVDA 财报后数据中心收入同比增长，市场继续上修 EPS 预期。",
+                "author": "Analyst",
+                "screen_name": "analyst",
+            },
+        )
+        settings = {"include_replies": False, "include_retweets": False}
+
+        self.assertIsNone(monitor.skip_reason(item, settings, topic="invest"))
+
     def test_run_fetches_timeline_filters_items_fetches_single_and_updates_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp) / ".twitter-monitor"
@@ -169,6 +220,73 @@ settings:
             self.assertEqual(state["version"], 3)
             self.assertIn("last_success_at", state["users"]["karpathy"])
             self.assertIn("window_start", state["users"]["karpathy"])
+
+    def test_run_skips_invest_topic_irrelevant_quote_before_single_fetch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / ".twitter-monitor"
+            runtime.mkdir()
+            (runtime / "config.yaml").write_text(
+                """
+users:
+  - username: "Money_or_Life_X"
+
+topics:
+  - name: "invest"
+    users:
+      - "Money_or_Life_X"
+
+settings:
+  interval_minutes: 60
+  window_grace_minutes: 0
+  max_scan_per_user: 20
+  include_replies: false
+  include_retweets: false
+  expand_thread: true
+  mark_skipped_as_seen: true
+""",
+                encoding="utf-8",
+            )
+            irrelevant = tweet(
+                "901",
+                text="兄弟，还没卖？",
+                author="Ace from Money or Life 美股频道",
+                screen_name="Money_or_Life_X",
+                is_quote=True,
+                quote={"text": "太太告诉我，我们北京的房子已经亏了 220 万。"},
+            )
+            relevant = tweet(
+                "902",
+                text="这轮 AI capex 继续推高半导体订单。",
+                author="Ace from Money or Life 美股频道",
+                screen_name="Money_or_Life_X",
+                is_quote=True,
+                quote={"text": "$NVDA 财报后数据中心收入同比增长，市场继续上修 EPS 预期。"},
+            )
+            full = {
+                **timeline_payload(relevant),
+                "mode": "single",
+                "input": {"url": relevant["url"], "context": "thread"},
+            }
+
+            with mock.patch.object(monitor, "now_iso", return_value="2026-06-23T10:00:00Z"):
+                with mock.patch.object(monitor, "run_twitter_fetch", return_value=full) as fetch:
+                    with mock.patch.object(monitor, "ingest_tweet_pool"):
+                        with mock.patch.object(
+                            monitor,
+                            "fetch_timeline_window",
+                            return_value=window_payload(irrelevant, relevant),
+                        ):
+                            report = monitor.run_monitor(runtime)
+
+            fetch.assert_called_once_with(["single", "--url", relevant["url"], "--include-thread"])
+            user_report = report["users"]["Money_or_Life_X"]
+            self.assertEqual(user_report["skipped"], 1)
+            self.assertEqual(user_report["fetched"], 1)
+            state = json.loads((runtime / ".state.json").read_text())
+            items = state["users"]["Money_or_Life_X"]["items"]
+            self.assertEqual(items["901"]["status"], "skipped")
+            self.assertEqual(items["901"]["reason"], "topic_irrelevant")
+            self.assertEqual(items["902"]["status"], "fetched")
 
     def test_run_does_not_refetch_items_already_saved_or_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
