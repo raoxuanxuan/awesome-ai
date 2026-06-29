@@ -1,0 +1,101 @@
+name: Codex Auto PR
+
+on:
+  push:
+    branches:
+      - "codex/**"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: codex-auto-pr-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  create-pr:
+    name: Create or reuse PR
+    runs-on: ubuntu-latest
+    outputs:
+      pr-number: ${{ steps.pr.outputs.number }}
+    steps:
+      - name: Create or reuse PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          HEAD_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          pr_number="$(
+            gh pr list \
+              --state open \
+              --base "$BASE_BRANCH" \
+              --head "$HEAD_BRANCH" \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+
+          if [ -z "$pr_number" ]; then
+            title="Codex: ${HEAD_BRANCH#codex/}"
+            body="$(cat <<'BODY'
+          Automated PR for a Codex-generated branch.
+
+          This workflow only enables GitHub auto-merge. Branch protection,
+          required checks, conflicts, and repository auto-merge settings still
+          decide whether the PR can actually be merged.
+          BODY
+          )"
+
+            pr_url="$(
+              gh pr create \
+                --base "$BASE_BRANCH" \
+                --head "$HEAD_BRANCH" \
+                --title "$title" \
+                --body "$body"
+            )"
+            pr_number="${pr_url##*/}"
+          fi
+
+          echo "number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "Using PR #$pr_number"
+
+  test:
+    name: Test before auto-merge (Node ${{ matrix.node-version }})
+    needs: create-pr
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
+      - run: npm test
+
+  enable-auto-merge:
+    name: Enable auto-merge
+    needs:
+      - create-pr
+      - test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.create-pr.outputs.pr-number }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          gh pr merge "$PR_NUMBER" \
+            --auto \
+            --merge \
+            --match-head-commit "$HEAD_SHA"
