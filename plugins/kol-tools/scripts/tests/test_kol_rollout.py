@@ -41,9 +41,9 @@ class KolRolloutTests(unittest.TestCase):
 
             plan = build_plan(vault, handles=["bootstrap", "mature"])
 
-            actions = {item["handle"]: item["action"] for item in plan["items"]}
-            self.assertEqual(actions["bootstrap"], "bootstrap-pack")
-            self.assertEqual(actions["mature"], "delta")
+            actions = {item["kol"]: item["next_action"] for item in plan["items"]}
+            self.assertEqual(actions["bootstrap"], "create_bootstrap_pack")
+            self.assertEqual(actions["mature"], "process_delta")
 
 
 if __name__ == "__main__":

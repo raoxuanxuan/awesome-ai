@@ -10,10 +10,19 @@ python3 plugins/kol-tools/scripts/kol_rollout.py \
 
 The planner classifies each handle through `kol_wiki_inventory.py`:
 
-- `existing_mature_wiki` -> `delta`
-- `partial_wiki_repair` -> `bootstrap-pack`
-- `bootstrap_required` -> `bootstrap-pack`
-- `not_ready` -> `blocked`
+```text
+readiness: mature_wiki
+next_action: process_delta
+
+readiness: partial_wiki
+next_action: create_repair_pack
+
+readiness: no_wiki_yet
+next_action: create_bootstrap_pack
+
+readiness: clean_index_not_ready
+next_action: run_clean_index_first
+```
 
 Recommended order:
 
@@ -21,7 +30,7 @@ Recommended order:
 2. `tig88411109`
 3. `aleabitoreddit`
 4. `qinbafrank`
-5. remaining handles by route and review cost
+5. remaining KOLs by `readiness`, `next_action`, and review cost
 
 Never commit ingest watermarks before validation marks
 `safe_to_commit_watermark: true`.

@@ -14,6 +14,20 @@ from kol_common import DEFAULT_VAULT, wiki_dir
 CORE_FILES = ("_index.md", "soul.md", "timeline.md")
 CONTENT_DIRS = ("sources", "methods", "positions")
 
+READINESS_BY_LEGACY_ROUTE = {
+    "existing_mature_wiki": "mature_wiki",
+    "partial_wiki_repair": "partial_wiki",
+    "bootstrap_required": "no_wiki_yet",
+    "not_ready": "clean_index_not_ready",
+}
+
+NEXT_ACTION_BY_READINESS = {
+    "mature_wiki": "process_delta",
+    "partial_wiki": "create_repair_pack",
+    "no_wiki_yet": "create_bootstrap_pack",
+    "clean_index_not_ready": "run_clean_index_first",
+}
+
 
 def count_jsonl(path: Path) -> int:
     if not path.exists():
@@ -81,17 +95,20 @@ def classify_handle(vault: Path, handle: str) -> dict[str, Any]:
         issues.append("missing durable content pages")
 
     if clean_count == 0 or index_count == 0 or not stats.exists():
-        route = "not_ready"
+        legacy_route = "not_ready"
     elif all(core_present.values()) and sum(content_counts.values()) > 0 and source_is_clean:
-        route = "existing_mature_wiki"
+        legacy_route = "existing_mature_wiki"
     elif any(core_present.values()) or sum(content_counts.values()) > 0:
-        route = "partial_wiki_repair"
+        legacy_route = "partial_wiki_repair"
     else:
-        route = "bootstrap_required"
+        legacy_route = "bootstrap_required"
+
+    readiness = READINESS_BY_LEGACY_ROUTE[legacy_route]
 
     return {
-        "handle": handle,
-        "route": route,
+        "kol": handle,
+        "readiness": readiness,
+        "next_action": NEXT_ACTION_BY_READINESS[readiness],
         "issues": issues,
         "clean_count": clean_count,
         "index_count": index_count,
@@ -117,20 +134,29 @@ def iter_handles(vault: Path) -> list[str]:
 
 
 def inventory_vault(vault: Path) -> dict[str, Any]:
-    handles = [classify_handle(vault, handle) for handle in iter_handles(vault)]
-    by_route: dict[str, int] = {}
-    for item in handles:
-        by_route[item["route"]] = by_route.get(item["route"], 0) + 1
-    return {"vault": str(vault), "handles": handles, "by_route": by_route}
+    kols = [classify_handle(vault, handle) for handle in iter_handles(vault)]
+    by_readiness: dict[str, int] = {}
+    by_next_action: dict[str, int] = {}
+    for item in kols:
+        by_readiness[item["readiness"]] = by_readiness.get(item["readiness"], 0) + 1
+        by_next_action[item["next_action"]] = by_next_action.get(item["next_action"], 0) + 1
+    return {
+        "vault": str(vault),
+        "kols": kols,
+        "by_readiness": by_readiness,
+        "by_next_action": by_next_action,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Inspect KOL wiki rollout readiness.")
     parser.add_argument("--vault", type=Path, default=DEFAULT_VAULT)
-    parser.add_argument("--handle")
+    parser.add_argument("--kol")
+    parser.add_argument("--handle", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
-    result = classify_handle(args.vault, args.handle) if args.handle else inventory_vault(args.vault)
+    kol = args.kol or args.handle
+    result = classify_handle(args.vault, kol) if kol else inventory_vault(args.vault)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 

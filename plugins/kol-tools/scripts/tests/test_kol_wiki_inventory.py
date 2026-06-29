@@ -36,7 +36,9 @@ class KolWikiInventoryTests(unittest.TestCase):
 
             result = classify_handle(vault, "h")
 
-            self.assertEqual(result["route"], "existing_mature_wiki")
+            self.assertEqual(result["kol"], "h")
+            self.assertEqual(result["readiness"], "mature_wiki")
+            self.assertEqual(result["next_action"], "process_delta")
             self.assertEqual(result["clean_count"], 1)
             self.assertTrue(result["index_source_is_clean"])
 
@@ -54,7 +56,8 @@ class KolWikiInventoryTests(unittest.TestCase):
 
             result = classify_handle(vault, "h")
 
-            self.assertEqual(result["route"], "bootstrap_required")
+            self.assertEqual(result["readiness"], "no_wiki_yet")
+            self.assertEqual(result["next_action"], "create_bootstrap_pack")
             self.assertIn("missing soul.md", result["issues"])
 
     def test_inventory_vault_lists_all_handles(self):
@@ -67,7 +70,9 @@ class KolWikiInventoryTests(unittest.TestCase):
 
             result = inventory_vault(vault)
 
-            self.assertEqual([item["handle"] for item in result["handles"]], ["a", "b"])
+            self.assertEqual([item["kol"] for item in result["kols"]], ["a", "b"])
+            self.assertEqual(result["by_readiness"], {"clean_index_not_ready": 2})
+            self.assertEqual(result["by_next_action"], {"run_clean_index_first": 2})
 
 
 if __name__ == "__main__":

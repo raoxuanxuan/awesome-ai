@@ -24,11 +24,11 @@ Runtime report:
 
 Summary:
 
-- 12 KOL handles inspected.
-- 11 handles are `existing_mature_wiki`.
-- 1 handle is `bootstrap_required`: `AswathDamodaran`.
-- All 12 handles have nonzero `.clean_corpus.jsonl` and `.ingest_index.jsonl`.
-- All handles currently have schema debt under the new stricter wiki schema.
+- 12 KOLs inspected.
+- 11 KOLs have `readiness: mature_wiki`.
+- 1 KOL has `readiness: no_wiki_yet`: `AswathDamodaran`.
+- All 12 KOLs have nonzero `.clean_corpus.jsonl` and `.ingest_index.jsonl`.
+- All KOLs currently have schema debt under the new stricter wiki schema.
 - `LinQingV` has a mature wiki but no `.ingest_meta.json`; watermark handling
   needs a separate initialization step before normal delta commits.
 
@@ -36,7 +36,8 @@ Summary:
 
 Inventory:
 
-- route: `existing_mature_wiki`
+- readiness: `mature_wiki`
+- next_action: `process_delta`
 - clean/index count: 2,629
 - current delta: `none`
 - existing old pack:
