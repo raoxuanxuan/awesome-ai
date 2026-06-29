@@ -1,0 +1,9 @@
+{
+  "name": "substack-tools",
+  "version": "0.1.0",
+  "description": "Fetch normalized Substack articles and download referenced media for downstream reading, translation, and Obsidian workflows.",
+  "author": {
+    "name": "saberrao"
+  },
+  "skills": "./skills/"
+}

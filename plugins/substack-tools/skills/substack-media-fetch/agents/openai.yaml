@@ -1,0 +1,4 @@
+interface:
+  display_name: "Substack Media Fetch"
+  short_description: "Download media from substack-fetch JSON."
+  default_prompt: "Download media referenced by this substack-fetch JSON and return a manifest."

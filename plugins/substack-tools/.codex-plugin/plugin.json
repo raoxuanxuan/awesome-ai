@@ -1,0 +1,25 @@
+{
+  "name": "substack-tools",
+  "version": "0.1.0",
+  "description": "Fetch normalized Substack articles and download referenced media for downstream reading, translation, and Obsidian workflows.",
+  "author": {
+    "name": "saberrao"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Substack Tools",
+    "shortDescription": "Fetch and archive Substack articles.",
+    "longDescription": "Substack Tools fetches public Substack articles through Substack's post JSON endpoint when available, emits normalized content JSON, writes original Markdown/HTML/debug artifacts for local reading, and downloads referenced article media through a separate manifest-producing media skill. Translation and Obsidian vault writes belong to downstream ingestion skills such as content-to-obsidian.",
+    "developerName": "saberrao",
+    "category": "Productivity",
+    "capabilities": [
+      "Fetch Substack post metadata",
+      "Extract article body HTML",
+      "Emit normalized content JSON",
+      "Write original Markdown",
+      "Download referenced images",
+      "Produce media manifests"
+    ],
+    "defaultPrompt": "Fetch this Substack article and prepare it for local reading or Obsidian ingestion."
+  }
+}
