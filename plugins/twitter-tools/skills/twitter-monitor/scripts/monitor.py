@@ -59,6 +59,15 @@ INVEST_RELEVANCE_PATTERNS = [
         r"SEC|IPO|并购|收购|拆分|增发|稀释|可转债|债务|融资",
     )
 ]
+CODING_USAGE_RESET_TOPICS = {"codex", "claudecode"}
+USAGE_RESET_SIGNAL_PATTERNS = [
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\b(?:usage|quota|rate|message|messages|limit|limits|cap|caps)\b",
+        r"\b(?:reset|refresh|restore|renew|refill)\b|重置|恢复|刷新",
+        r"\b(?:next|coming|within|in)\s+(?:the\s+)?(?:hour|60\s*minutes)\b|下个?小时|一小时内|很快",
+    )
+]
 DEFAULT_INTERVAL_MINUTES = 60
 DEFAULT_MAX_SCAN_PER_USER = 50
 DEFAULT_WINDOW_GRACE_MINUTES = 10
@@ -678,6 +687,13 @@ def notification_text(item: dict[str, Any], full_payload: dict[str, Any]) -> str
     return "\n\n".join(part for part in parts if part)
 
 
+def matches_quota_reset_good_news(text: str, topics: list[str]) -> bool:
+    if not any(topic.strip().lower() in CODING_USAGE_RESET_TOPICS for topic in topics):
+        return False
+    normalized = text or ""
+    return all(pattern.search(normalized) for pattern in USAGE_RESET_SIGNAL_PATTERNS)
+
+
 def tweet_content_types(item: dict[str, Any], full_payload: dict[str, Any]) -> list[str]:
     full_item = first_full_item(item, full_payload)
     types = []
@@ -854,10 +870,23 @@ def build_notification_event(
         meta["topic"] = topic
     if len(topics) > 1:
         meta["topics"] = topics
+    level = "alert"
+    title = author
+    if matches_quota_reset_good_news(notification_text(item, full_payload), topics):
+        level = "critical"
+        title = f"{author}  额度重置"
+        summary = f"好消息：这条推文提到 Codex / ClaudeCode 使用额度将在接下来一小时或很快重置。\n\n{summary}"
+        existing_labels = list(meta.get("labels") or [])
+        for label in ("喜讯", "额度重置"):
+            if label not in existing_labels:
+                existing_labels.append(label)
+        meta["labels"] = existing_labels
+        meta["highlight"] = "quota_reset_good_news"
+        meta["classifier"] = "quota_reset_good_news"
     return {
         "source": "twitter-monitor",
-        "level": "alert",
-        "title": author,
+        "level": level,
+        "title": title,
         "summary": summary,
         "dedupe_key": f"tweet:{tweet_id}",
         "links": [{"label": url, "url": url}] if url else [],

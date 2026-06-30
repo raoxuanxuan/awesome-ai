@@ -576,6 +576,30 @@ settings:
         self.assertEqual(event["meta"]["topic"], "AI")
         self.assertEqual(event["meta"]["topics"], ["AI", "Codex"])
 
+    def test_notification_event_highlights_quota_reset_good_news_in_coding_topics(self):
+        item = tweet(
+            "311",
+            text="Good news: your Claude Code usage limit will completely reset in the next hour.",
+            author="Thomas",
+            screen_name="thsottiaux",
+        )
+        config = {
+            "topics": [
+                {"name": "Codex", "users": ["thsottiaux"]},
+                {"name": "ClaudeCode", "users": ["thsottiaux"]},
+            ]
+        }
+
+        event = monitor.build_notification_event("thsottiaux", item, timeline_payload(item), config)
+
+        self.assertEqual(event["level"], "critical")
+        self.assertEqual(event["dedupe_key"], "tweet:311")
+        self.assertIn("额度重置", event["title"])
+        self.assertIn("好消息", event["summary"])
+        self.assertEqual(event["meta"]["labels"], ["喜讯", "额度重置"])
+        self.assertEqual(event["meta"]["highlight"], "quota_reset_good_news")
+        self.assertEqual(event["meta"]["topics"], ["Codex", "ClaudeCode"])
+
     def test_notification_event_uses_configured_targets(self):
         item = tweet("310", screen_name="thsottiaux")
         config = {

@@ -198,6 +198,10 @@ always the standard envelope:
      - tweet summary
      - tweet link
      - content type: `thread`, `quote`, `article`, or plain `tweet`
+   - Twitter Monitor applies lightweight notification policy before appending.
+     - For `Codex` or `ClaudeCode` topic tweets that mention usage/quota/limit reset in the next hour or soon, the same notification event is upgraded to `critical`.
+     - The title is suffixed with `额度重置`, the summary is prefixed with a short good-news note, and `meta.labels` includes `喜讯` and `额度重置`.
+     - This is an in-place enhancement of the original tweet notification, not an extra derived notification, so one tweet still appends one event.
    - Twitter Monitor sets `meta.display.hide_footer: true`, so Feishu cards omit the trailing time/level footer and leave more space for content.
    - The notification event includes `meta.topic` when the monitored user belongs to a configured topic.
    - If a monitored user belongs to multiple configured topics, `meta.topic` keeps the first topic for backward compatibility and `meta.topics` contains all topics in config order.
