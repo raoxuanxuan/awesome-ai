@@ -59,6 +59,30 @@ INVEST_RELEVANCE_PATTERNS = [
         r"SEC|IPO|并购|收购|拆分|增发|稀释|可转债|债务|融资",
     )
 ]
+LOW_INFO_QUOTE_REACTION_WORDS = {
+    "big",
+    "cool",
+    "holy",
+    "huge",
+    "interesting",
+    "lfg",
+    "lol",
+    "nice",
+    "omg",
+    "soon",
+    "wow",
+    "wtf",
+}
+LOW_INFO_QUOTE_PATTERNS = [
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"^do you think it (?:has|will have|comes with)\b.*\?$",
+        r"^does it (?:have|come with)\b.*\?$",
+        r"^can't wait[.!…]*$",
+        r"^need this[.!…]*$",
+        r"^ship it[.!…]*$",
+    )
+]
 CODING_USAGE_RESET_TOPICS = {"codex", "claudecode"}
 USAGE_RESET_SIGNAL_PATTERNS = [
     re.compile(pattern, re.IGNORECASE)
@@ -531,11 +555,89 @@ def topic_relevance_enabled(settings: dict[str, Any]) -> bool:
     return setting_bool(settings, "topic_relevance_filter", True)
 
 
-def skip_reason(item: dict[str, Any], settings: dict[str, Any], topic: str = "") -> str | None:
+def topic_user_set(config: dict[str, Any] | None, topic: str) -> set[str]:
+    if not isinstance(config, dict) or not topic:
+        return set()
+    topic_key = topic.strip().lower()
+    users: set[str] = set()
+    for topic_config in config.get("topics") or []:
+        if not isinstance(topic_config, dict):
+            continue
+        if str(topic_config.get("name") or "").strip().lower() != topic_key:
+            continue
+        for username in topic_config.get("users") or []:
+            handle = str(username or "").strip().lstrip("@").lower()
+            if handle:
+                users.add(handle)
+    return users
+
+
+def quote_source_screen_name(item: dict[str, Any]) -> str:
+    quote = item.get("quote")
+    if not isinstance(quote, dict):
+        return ""
+    return str(quote.get("screen_name") or quote.get("username") or "").strip().lstrip("@")
+
+
+def quote_source_is_monitored_in_topic(
+    item: dict[str, Any],
+    topic: str,
+    config: dict[str, Any] | None,
+) -> bool:
+    source = quote_source_screen_name(item).lower()
+    return bool(source and source in topic_user_set(config, topic))
+
+
+def low_info_quote_text(text: str) -> bool:
+    compact = re.sub(r"\s+", " ", text or "").strip()
+    if not compact:
+        return True
+    if has_url(compact):
+        return False
+    if any(pattern.search(compact) for pattern in LOW_INFO_QUOTE_PATTERNS):
+        return True
+    semantic_tokens = re.findall(r"[A-Za-z][A-Za-z']*|\$[A-Za-z]{1,6}|[\u3400-\u9fff]", compact)
+    if not semantic_tokens:
+        return True
+    if len(semantic_tokens) <= 2:
+        return True
+    words = [token.lower().strip("'") for token in semantic_tokens if re.match(r"[A-Za-z]", token)]
+    cjk_tokens = [token for token in semantic_tokens if re.match(r"[\u3400-\u9fff]", token)]
+    if (
+        words
+        and not cjk_tokens
+        and len(words) <= 4
+        and all(word in LOW_INFO_QUOTE_REACTION_WORDS for word in words)
+    ):
+        return True
+    return False
+
+
+def is_low_info_quote_wrapper(
+    item: dict[str, Any],
+    topic: str,
+    config: dict[str, Any] | None,
+) -> bool:
+    if not (item.get("is_quote") or isinstance(item.get("quote"), dict)):
+        return False
+    if not quote_source_is_monitored_in_topic(item, topic, config):
+        return False
+    own_text = str(item.get("full_text") or item.get("text") or "").strip()
+    return low_info_quote_text(own_text)
+
+
+def skip_reason(
+    item: dict[str, Any],
+    settings: dict[str, Any],
+    topic: str = "",
+    config: dict[str, Any] | None = None,
+) -> str | None:
     if not settings.get("include_retweets", False) and item.get("is_retweet"):
         return "retweet"
     if not settings.get("include_replies", False) and item.get("is_reply") and not item.get("is_quote"):
         return "reply"
+    if topic and is_low_info_quote_wrapper(item, topic, config):
+        return "low_info_quote_wrapper"
     if topic and topic_relevance_enabled(settings) and not is_topic_relevant(item, topic):
         return "topic_irrelevant"
     text = (item.get("full_text") or item.get("text") or "").strip()
@@ -1039,7 +1141,7 @@ def run_user(username: str, config: dict[str, Any], state: dict[str, Any]) -> di
         if item_status(user_entry, tweet_id) in SEEN_STATUSES:
             report["already_seen"] += 1
             continue
-        reason = skip_reason(item, settings, topic=topic)
+        reason = skip_reason(item, settings, topic=topic, config=config)
         if reason:
             report["skipped"] += 1
             if mark_skipped:

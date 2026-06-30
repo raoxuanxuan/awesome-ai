@@ -51,6 +51,7 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 | 标准输出 | `fetch_timeline.py` 直接输出 `twitter-fetch` 标准 envelope，不再输出旧版 `username/tweets/tweet_count` |
 | 时间窗口 | 每轮检查上一个已关闭 interval，`window_grace_minutes` 控制整点后延迟确认 |
 | 新内容过滤 | 根据 state 去重，过滤低价值短推、纯转推，以及明显不属于当前 topic 的内容 |
+| Quote 去噪 | 当 quote 作者只发低信息量反应，且被引用账号也在同 topic 监控中时，跳过 wrapper，只保留原始信息源 |
 | 内容补全 | 对候选内容调用 `twitter-fetch single --include-thread` |
 | 通知中心 | 对候选内容构造最小 review event，并通过 `notification-center/append.py --stdin` 写入本地通知队列 |
 | 飞书展示 | 通知卡片只展示作者、正文摘要、推文链接；长内容可调用 LLM 摘要，失败时本地截断兜底 |
@@ -82,6 +83,15 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 - 非 `invest` topic 不受这条规则影响。
 
 如果后续发现误杀，可以先补关键词；如果噪音仍多，再升级成 LLM 二级相关性判断。
+
+## Quote 去噪
+
+`twitter-monitor` 会保留大多数 quote tweet，因为很多有价值信息来自被引用内容。但当满足下面两个条件时，会以 `low_info_quote_wrapper` 跳过：
+
+- quote 作者自己的正文只是 emoji、泛泛反应、短玩笑或短反问，没有新增信息。
+- 被引用账号也在同一个 topic 的监控列表里，原始信息源会自己进入通知流。
+
+这样可以过滤 `👀😏🔜` 或 `Do you think it has a reset button?` 这类围绕 `OpenAIDevs` 原始公告的重复 wrapper。若被引用账号没有被监控，或者 quote 作者补充了实质判断、解释、风险、反驳或行动建议，则仍会保留。
 
 ## 目录结构
 

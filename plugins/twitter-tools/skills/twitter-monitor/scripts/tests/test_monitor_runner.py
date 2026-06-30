@@ -175,6 +175,72 @@ sinks:
 
         self.assertIsNone(monitor.skip_reason(item, settings, topic="invest"))
 
+    def test_skip_reason_filters_low_info_quote_when_source_is_monitored_in_topic(self):
+        config = {
+            "topics": [
+                {
+                    "name": "Codex",
+                    "users": ["ajambrosino", "thsottiaux", "OpenAIDevs"],
+                }
+            ]
+        }
+        settings = {"include_replies": False, "include_retweets": False}
+        quote = {
+            "text": "Your favorite Codex shortcuts are getting an upgrade.\n\nJuly 15th.",
+            "author": "OpenAI Developers",
+            "screen_name": "OpenAIDevs",
+        }
+        cases = [
+            tweet("904", text="👀😏🔜", is_quote=True, quote=quote),
+            tweet("905", text="Do you think it has a reset button?", is_quote=True, quote=quote),
+        ]
+
+        for item in cases:
+            with self.subTest(tweet_id=item["id"]):
+                self.assertEqual(
+                    monitor.skip_reason(item, settings, topic="Codex", config=config),
+                    "low_info_quote_wrapper",
+                )
+
+    def test_skip_reason_keeps_low_info_quote_when_source_is_not_monitored_in_topic(self):
+        config = {"topics": [{"name": "Codex", "users": ["ajambrosino"]}]}
+        settings = {"include_replies": False, "include_retweets": False}
+        item = tweet(
+            "906",
+            text="Holy",
+            is_quote=True,
+            quote={
+                "text": "A new agent runtime ships with durable task state.",
+                "author": "Runtime Lab",
+                "screen_name": "runtime_lab",
+            },
+        )
+
+        self.assertIsNone(monitor.skip_reason(item, settings, topic="Codex", config=config))
+
+    def test_skip_reason_keeps_substantive_quote_even_when_source_is_monitored(self):
+        config = {
+            "topics": [
+                {
+                    "name": "Codex",
+                    "users": ["ajambrosino", "OpenAIDevs"],
+                }
+            ]
+        }
+        settings = {"include_replies": False, "include_retweets": False}
+        item = tweet(
+            "907",
+            text="This matters because shortcut ergonomics compound across long coding sessions.",
+            is_quote=True,
+            quote={
+                "text": "Your favorite Codex shortcuts are getting an upgrade.\n\nJuly 15th.",
+                "author": "OpenAI Developers",
+                "screen_name": "OpenAIDevs",
+            },
+        )
+
+        self.assertIsNone(monitor.skip_reason(item, settings, topic="Codex", config=config))
+
     def test_run_fetches_timeline_filters_items_fetches_single_and_updates_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp) / ".twitter-monitor"

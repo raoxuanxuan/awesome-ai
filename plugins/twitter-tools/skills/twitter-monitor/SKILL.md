@@ -181,6 +181,11 @@ always the standard envelope:
    - Skip pure retweets when `include_retweets: false`.
    - Skip short non-quote posts with no URL when unlikely to carry durable value.
    - Do not skip short posts containing `http` or `t.co`; they may be X Articles or link posts.
+   - Skip low-information quote wrappers when the quoted source is also monitored in the same topic.
+     - Examples: emoji-only reactions, generic reactions such as `Holy`, `wow`, `soon`, or short rhetorical jokes such as `Do you think it has a reset button?`.
+     - This prevents duplicate notifications when the original monitored source, such as `OpenAIDevs`, will already produce the useful notification.
+     - Short quote tweets are still kept when the quoted source is not monitored in the same topic, because the quote may be the only path to that information.
+     - Quote tweets are also kept when the author adds substantive judgment, explanation, risk, disagreement, or action guidance.
    - When `topic_relevance_filter: true` (default), apply deterministic topic relevance filtering before full fetch.
      - Current topic-specific filter: `invest`.
      - `invest` content must contain investment, market, financial, ticker, portfolio, macro-market, or industry-chain signals in the tweet, quote, or article text.
