@@ -121,6 +121,7 @@ settings:
 sinks:
   notification:
     enabled: true
+    targets: ["feishu"]
     direct_chars: 300
     summary_chars: 600
     summary_timeout_seconds: 20
@@ -207,7 +208,8 @@ always the standard envelope:
      - Supported tag fields, in order: `display_tags`, `author_tags`, `tags`, `chips`.
      - Only the first three normalized tags are emitted; missing or invalid profiles are ignored so monitoring does not fail.
    - If a user config has `paid: true` or `subscriber_only: true`, the notification summary is prefixed with `[付费]` and `meta.labels` includes `付费`.
-   - Keep `targets: ["feishu"]`; topic-to-webhook routing belongs to `notification-center`, where one Feishu bot can serve multiple topics.
+   - Notification targets default to `["feishu"]`; set `sinks.notification.targets` to include `"wecom"` when matching topics should also route to WeCom bots.
+   - Topic-to-webhook routing belongs to `notification-center`, where one bot can serve multiple topics and one topic can fan out to multiple bots.
    - Summary policy:
      - If cleaned Chinese content length is within `sinks.notification.direct_chars`, show the content directly, except paid/subscriber-only users.
      - If `settings.translate_non_chinese: true` and the original content is detected as English, call the summary command even for short content, produce a Chinese summary, prefix `[原文英文]`, and set `meta.original_language: "en"`.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dispatch pending notification center events to Feishu."""
+"""Dispatch pending notification center events to chat bots."""
 
 from __future__ import annotations
 
@@ -74,6 +74,7 @@ def normalize_bot(name: str, data: Any) -> dict[str, Any]:
     if not data.get("webhook") or not data.get("secret"):
         raise ValueError(f"Feishu bot config must contain webhook and secret: {name}")
     return {
+        "channel": "feishu",
         "name": name,
         "webhook": str(data["webhook"]),
         "secret": str(data["secret"]),
@@ -81,10 +82,75 @@ def normalize_bot(name: str, data: Any) -> dict[str, Any]:
     }
 
 
+def normalize_wecom_bot(name: str, data: Any) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        raise ValueError(f"WeCom bot config must be an object: {name}")
+    if not data.get("webhook"):
+        raise ValueError(f"WeCom bot config must contain webhook: {name}")
+    return {
+        "channel": "wecom",
+        "name": name,
+        "webhook": str(data["webhook"]),
+        "topics": [str(topic) for topic in data.get("topics") or []],
+    }
+
+
+def normalize_topic_bot_config(
+    data: Any,
+    *,
+    channel: str,
+    bot_normalizer: Any,
+) -> dict[str, Any]:
+    if not data:
+        return {"bots": {}, "topics": {}}
+    if not isinstance(data, dict):
+        raise ValueError(f"{channel} config must be an object")
+    bots: dict[str, dict[str, Any]] = {}
+    topic_routes: dict[str, list[str]] = {}
+
+    def add_topic_route(topic: str, bot_name: str) -> None:
+        topic = str(topic)
+        bot_name = str(bot_name)
+        routes = topic_routes.setdefault(topic, [])
+        if bot_name not in routes:
+            routes.append(bot_name)
+
+    raw_bots = data.get("bots") or {}
+    if isinstance(raw_bots, dict):
+        for name, bot_data in raw_bots.items():
+            bot = bot_normalizer(str(name), bot_data)
+            bots[bot["name"]] = bot
+            for topic in bot["topics"]:
+                add_topic_route(topic, bot["name"])
+    elif isinstance(raw_bots, list):
+        for index, bot_data in enumerate(raw_bots):
+            name = str(bot_data.get("name") or f"bot{index + 1}") if isinstance(bot_data, dict) else f"bot{index + 1}"
+            bot = bot_normalizer(name, bot_data)
+            bots[bot["name"]] = bot
+            for topic in bot["topics"]:
+                add_topic_route(topic, bot["name"])
+    else:
+        raise ValueError(f"{channel} config bots must be an object or array")
+
+    raw_topics = data.get("topics") or {}
+    if isinstance(raw_topics, dict):
+        for topic, bot_names in raw_topics.items():
+            values = bot_names if isinstance(bot_names, list) else [bot_names]
+            topic_routes[str(topic)] = []
+            for bot_name in values:
+                add_topic_route(str(topic), str(bot_name))
+
+    for topic, bot_names in topic_routes.items():
+        for bot_name in bot_names:
+            if bot_name not in bots:
+                raise ValueError(f"{channel} topic {topic!r} references unknown bot {bot_name!r}")
+    return {"bots": bots, "topics": topic_routes}
+
+
 def normalize_config(data: dict[str, Any]) -> dict[str, Any]:
     if data.get("webhook") and data.get("secret"):
         bot = normalize_bot("default", data)
-        return {"default": "default", "bots": {"default": bot}, "topics": {}}
+        return {"default": "default", "bots": {"default": bot}, "topics": {}, "wecom": {"bots": {}, "topics": {}}}
 
     bots: dict[str, dict[str, Any]] = {}
     topic_routes: dict[str, list[str]] = {}
@@ -138,7 +204,16 @@ def normalize_config(data: dict[str, Any]) -> dict[str, Any]:
         for bot_name in bot_names:
             if bot_name not in bots:
                 raise ValueError(f"Feishu topic {topic!r} references unknown bot {bot_name!r}")
-    return {"default": default_name, "bots": bots, "topics": topic_routes}
+    return {
+        "default": default_name,
+        "bots": bots,
+        "topics": topic_routes,
+        "wecom": normalize_topic_bot_config(
+            data.get("wecom"),
+            channel="WeCom",
+            bot_normalizer=normalize_wecom_bot,
+        ),
+    }
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -162,6 +237,18 @@ def post_feishu(webhook: str, secret: str, payload: dict[str, Any], timeout: int
     req = urllib.request.Request(
         webhook,
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read().decode("utf-8")
+    return json.loads(raw)
+
+
+def post_wecom(webhook: str, payload: dict[str, Any], timeout: int = 10) -> dict[str, Any]:
+    req = urllib.request.Request(
+        webhook,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={"Content-Type": "application/json; charset=utf-8"},
         method="POST",
     )
@@ -234,7 +321,7 @@ def mark_digest(runtime: Path, day: str) -> None:
 
 
 def ensure_config(cfg: dict[str, Any]) -> dict[str, Any]:
-    if "bots" in cfg and "default" in cfg and "topics" in cfg:
+    if "bots" in cfg and "default" in cfg and "topics" in cfg and "wecom" in cfg:
         return cfg
     return normalize_config(cfg)
 
@@ -287,14 +374,50 @@ def feishu_routes(entry: dict[str, Any], cfg: dict[str, Any]) -> list[tuple[str,
     return routes
 
 
+def wecom_routes(entry: dict[str, Any], cfg: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    cfg = ensure_config(cfg)
+    targets = [str(target) for target in (entry.get("targets") or ["feishu"])]
+    wecom_cfg = cfg.get("wecom") if isinstance(cfg.get("wecom"), dict) else {"bots": {}, "topics": {}}
+    routes: list[tuple[str, dict[str, Any]]] = []
+    seen: set[str] = set()
+    for target in targets:
+        if target != "wecom" and not target.startswith("wecom:"):
+            continue
+        topics = [target.split(":", 1)[1]] if ":" in target else entry_topics(entry)
+        bot_names = []
+        for topic in topics:
+            matched_bot_names = wecom_cfg.get("topics", {}).get(topic, []) if topic else []
+            if not matched_bot_names and topic in wecom_cfg.get("bots", {}):
+                matched_bot_names = [topic]
+            for bot_name in matched_bot_names:
+                if bot_name not in bot_names:
+                    bot_names.append(bot_name)
+        for bot_name in bot_names:
+            route_key = f"wecom:{bot_name}"
+            if route_key in seen:
+                continue
+            seen.add(route_key)
+            routes.append((route_key, wecom_cfg["bots"][bot_name]))
+    return routes
+
+
+def delivery_routes(entry: dict[str, Any], cfg: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    return feishu_routes(entry, cfg) + wecom_routes(entry, cfg)
+
+
 def pending_feishu_routes(entry: dict[str, Any], runtime: Path, cfg: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     entry_id = str(entry.get("id") or "")
     return [(target, bot) for target, bot in feishu_routes(entry, cfg) if not is_delivered(runtime, entry_id, target)]
 
 
+def pending_delivery_routes(entry: dict[str, Any], runtime: Path, cfg: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    entry_id = str(entry.get("id") or "")
+    return [(target, bot) for target, bot in delivery_routes(entry, cfg) if not is_delivered(runtime, entry_id, target)]
+
+
 def should_push(entry: dict[str, Any], runtime: Path, quiet: bool, cfg: dict[str, Any]) -> bool:
     cfg = ensure_config(cfg)
-    if not pending_feishu_routes(entry, runtime, cfg):
+    if not pending_delivery_routes(entry, runtime, cfg):
         return False
     level = entry.get("level")
     if level == "info":
@@ -386,6 +509,28 @@ def build_card(entry: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_wecom_message(entry: dict[str, Any]) -> dict[str, Any]:
+    source = str(entry.get("source") or "notification")
+    title = str(entry.get("title") or "(untitled)")
+    meta = entry.get("meta") if isinstance(entry.get("meta"), dict) else {}
+    display = meta.get("display") if isinstance(meta.get("display"), dict) else {}
+    tags = author_tag_text(meta)
+    display_title = f"{title}  {tags}" if tags else title
+    title_content = display_title if display.get("hide_source_prefix") else f"[{source}] {display_title}"
+    lines = [f"**{title_content}**"]
+    summary = str(entry.get("summary") or "").strip()
+    if summary:
+        lines.extend(["", summary])
+    links = link_lines(entry)
+    if links:
+        lines.append("")
+        lines.extend(links[:5])
+    return {
+        "msgtype": "markdown",
+        "markdown": {"content": "\n".join(lines)[:4096]},
+    }
+
+
 def digest_due(runtime: Path, now: datetime) -> bool:
     if now.hour != DIGEST_HOUR:
         return False
@@ -469,7 +614,7 @@ def _dispatch_unlocked(runtime: Path, cfg: dict[str, Any], dry_run: bool = False
 
     for entry in to_push:
         entry_id = str(entry.get("id") or "")
-        for target, bot in pending_feishu_routes(entry, runtime, cfg):
+        for target, bot in pending_delivery_routes(entry, runtime, cfg):
             if send_index > 0 and not dry_run:
                 time.sleep(3.5)
             send_index += 1
@@ -477,12 +622,15 @@ def _dispatch_unlocked(runtime: Path, cfg: dict[str, Any], dry_run: bool = False
                 dry.append(f"{target} {entry.get('level')} {entry.get('source')} {entry.get('title')}")
                 continue
             try:
-                response = post_feishu(bot["webhook"], bot["secret"], build_card(entry))
+                if bot.get("channel") == "wecom":
+                    response = post_wecom(bot["webhook"], build_wecom_message(entry))
+                else:
+                    response = post_feishu(bot["webhook"], bot["secret"], build_card(entry))
             except Exception as exc:
                 failed += 1
                 log(runtime, f"SEND ERROR {entry_id} {target} {exc}")
                 continue
-            if response.get("code") == 0:
+            if response.get("code") == 0 or response.get("errcode") == 0:
                 mark_delivered(runtime, entry_id, target)
                 pushed += 1
                 log(runtime, f"SEND OK {entry_id} {target} {entry.get('level')} {entry.get('source')}")

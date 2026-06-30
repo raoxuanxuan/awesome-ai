@@ -229,6 +229,53 @@ class NotificationCenterTests(unittest.TestCase):
 
         self.assertEqual([target for target, _bot in routes], ["feishu:ai", "feishu:archive"])
 
+    def test_dispatch_routes_codex_topic_to_wecom_bot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / ".notification-center"
+            now = datetime(2026, 6, 24, 10, 0, tzinfo=timezone(timedelta(hours=8)))
+            entry = append.build_entry(
+                {
+                    "source": "twitter-monitor",
+                    "level": "alert",
+                    "title": "Codex",
+                    "summary": "Codex update",
+                    "dedupe_key": "tweet:codex",
+                    "meta": {"topic": "AI", "topics": ["AI", "Codex"]},
+                    "targets": ["feishu", "wecom"],
+                },
+                now=now,
+            )
+            append.append_entry(runtime, entry)
+            cfg = dispatch.normalize_config(
+                {
+                    "default": "general",
+                    "bots": {
+                        "general": {"webhook": "w-general", "secret": "s-general"},
+                        "ai": {"webhook": "w-ai", "secret": "s-ai", "topics": ["AI", "Codex"]},
+                    },
+                    "wecom": {
+                        "bots": {
+                            "codex": {"webhook": "w-wecom-codex", "topics": ["Codex"]},
+                        }
+                    },
+                }
+            )
+
+            with (
+                mock.patch.object(dispatch, "post_feishu", return_value={"code": 0}) as post_feishu,
+                mock.patch.object(dispatch, "post_wecom", return_value={"errcode": 0}) as post_wecom,
+            ):
+                result = dispatch.dispatch(runtime, cfg, now=now)
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["pushed"], 2)
+            post_feishu.assert_called_once()
+            post_wecom.assert_called_once()
+            self.assertEqual(post_feishu.call_args.args[0], "w-ai")
+            self.assertEqual(post_wecom.call_args.args[0], "w-wecom-codex")
+            self.assertTrue((runtime / ".delivered" / dispatch.delivered_entry_id(entry["id"], "feishu:ai")).exists())
+            self.assertTrue((runtime / ".delivered" / dispatch.delivered_entry_id(entry["id"], "wecom:codex")).exists())
+
     def test_dispatch_falls_back_to_default_bot_for_unmatched_topic(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp) / ".notification-center"

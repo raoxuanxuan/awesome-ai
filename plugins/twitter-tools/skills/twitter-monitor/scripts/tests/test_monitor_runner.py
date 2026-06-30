@@ -85,6 +85,23 @@ class MonitorRunnerTests(unittest.TestCase):
             ["karpathy", "omarsar0", "Money_or_Life_X"],
         )
 
+    def test_parse_config_subset_reads_notification_targets_list(self):
+        config = monitor.parse_config_subset(
+            """
+sinks:
+  notification:
+    enabled: true
+    targets:
+      - "feishu"
+      - "wecom"
+"""
+        )
+
+        self.assertEqual(
+            config["sinks"]["notification"]["targets"],
+            ["feishu", "wecom"],
+        )
+
     def test_topic_for_user_uses_first_topic_membership(self):
         config = {
             "topics": [
@@ -558,6 +575,20 @@ settings:
 
         self.assertEqual(event["meta"]["topic"], "AI")
         self.assertEqual(event["meta"]["topics"], ["AI", "Codex"])
+
+    def test_notification_event_uses_configured_targets(self):
+        item = tweet("310", screen_name="thsottiaux")
+        config = {
+            "sinks": {
+                "notification": {
+                    "targets": ["feishu", "wecom"],
+                }
+            }
+        }
+
+        event = monitor.build_notification_event("thsottiaux", item, timeline_payload(item), config)
+
+        self.assertEqual(event["targets"], ["feishu", "wecom"])
 
     def test_notification_event_includes_author_tags_from_kol_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
