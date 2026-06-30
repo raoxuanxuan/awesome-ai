@@ -5,7 +5,7 @@ description: Use when local automations, cron jobs, skills, or monitors need to 
 
 # Notification Center
 
-Notification Center is the local notification boundary for agent workflows. Producers append structured events to a local JSONL queue; dispatchers deliver pending events to Feishu with signing, quiet-hour rules, and delivered sidecars.
+Notification Center is the local notification boundary for agent workflows. Producers append structured events to a local JSONL queue; dispatchers deliver pending events to Feishu or WeCom with signing where required, quiet-hour rules, and delivered sidecars.
 
 It is not an Obsidian writer, business queue, or content archive.
 
@@ -20,8 +20,8 @@ It is not an Obsidian writer, business queue, or content archive.
 | `~/vault/.notification-center/.dispatch.lock` | Dispatcher process lock to prevent overlapping Feishu sends |
 | `~/vault/.notification-center/.digest/YYYY-MM-DD` | Daily digest delivered marker |
 | `~/vault/.notification-center/.watermarks.json` | Watcher watermarks |
-| `~/.notification-center/feishu.json` | Preferred Feishu webhook routing config and secrets, mode 600 |
-| `feishu.example.json` | Example Feishu config; copy it locally and replace placeholders |
+| `~/.notification-center/feishu.json` | Preferred bot routing config and secrets, mode 600 |
+| `feishu.example.json` | Example bot config; copy it locally and replace placeholders |
 | `~/Library/LaunchAgents/com.saber.notification-center.dispatch.plist` | Dispatcher launchd job |
 | `~/Library/LaunchAgents/com.saber.notification-center.watch.plist` | Watcher launchd job |
 
@@ -43,7 +43,7 @@ producer skill / cron / monitor
   -> append.py
   -> ~/vault/.notification-center/YYYY-MM-DD.jsonl
   -> dispatch.py
-  -> Feishu custom bot
+  -> Feishu or WeCom custom bot
 ```
 
 `watcher.py` is only another producer. It converts file changes into notification events and does not deliver messages.
@@ -69,7 +69,7 @@ producer skill / cron / monitor
 
 `id` defaults to `sha1(source|dedupe_key|YYYY-MM-DD)[:16]`. Producers should set a stable `dedupe_key`, such as `tweet:<id>`, `portfolio:<ticker>:<date>`, or `watch:<path>:<mtime>`.
 
-## Feishu Routing
+## Bot Routing
 
 `feishu.json` supports the legacy single-bot format:
 
@@ -127,14 +127,38 @@ The same routing can also be expressed with an explicit `topics` map:
 }
 ```
 
+WeCom bots can be configured in the same local file under `wecom.bots`.
+WeCom bots require only a webhook URL:
+
+```json
+{
+  "default": "invest",
+  "bots": {
+    "ai": {
+      "webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/...",
+      "secret": "SEC...",
+      "topics": ["AI", "ClaudeCode", "Codex"]
+    }
+  },
+  "wecom": {
+    "bots": {
+      "codex": {
+        "webhook": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...",
+        "topics": ["Codex"]
+      }
+    }
+  }
+}
+```
+
 Routing rules:
 
-- Producers keep `targets: ["feishu"]` and set `meta.topic` when known.
+- Producers normally use `targets: ["feishu"]`; producers can add `"wecom"` when matching topics should also route to WeCom bots.
 - Producers may also set `meta.topics` as a list when one event belongs to several topics; `meta.topic` remains the backward-compatible primary topic.
 - Dispatcher routes `meta.topic` or every item in `meta.topics` through `bots.*.topics`, deduping bots reached by more than one topic.
-- If a topic is not configured, dispatcher uses `default`.
+- For Feishu, if a topic is not configured, dispatcher uses `default`; for WeCom, unmatched topics are ignored.
 - If a topic maps to multiple bots, dispatcher sends the same event to every configured bot.
-- Delivered sidecars are target-scoped for routed bots, so one event can be delivered independently to different Feishu bots.
+- Delivered sidecars are target-scoped for routed bots, so one event can be delivered independently to different bots and channels.
 - Dispatcher runs hold a runtime lock. If launchd and a manual dispatch overlap, the later run exits with `locked: true` instead of sending duplicate cards.
 - Feishu card display can be controlled with `meta.display`; `hide_source_prefix`, `hide_level`, and `hide_footer` are supported.
 - Feishu card titles can show source-provided author tags via `meta.author_tags`.

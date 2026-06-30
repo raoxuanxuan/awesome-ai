@@ -1,11 +1,11 @@
 # Notification Tools
 
-Notification Tools 为本地 agent workflow 提供通知边界。生产者 skill 将结构化事件写入本地 JSONL 队列；dispatcher 脚本负责按 topic 路由到飞书机器人，并处理签名、安静时间、按目标去重的 delivered sidecar，以及进程锁，避免重复发送。
+Notification Tools 为本地 agent workflow 提供通知边界。生产者 skill 将结构化事件写入本地 JSONL 队列；dispatcher 脚本负责按 topic 路由到飞书或企业微信机器人，并处理签名、安静时间、按目标去重的 delivered sidecar，以及进程锁，避免重复发送。
 
 ## 能做什么
 
 - 写入结构化通知事件。
-- 按 topic 路由飞书通知。
+- 按 topic 路由飞书和企业微信通知。
 - 支持一个 topic 推送到多个 bot，也支持一个 bot 接收多个 topic。
 - 通过 `meta.display` 隐藏飞书卡片的来源、等级或底部信息。
 - 通过 `meta.author_tags` 在飞书卡片标题里展示作者画像 tag，例如 `Serenity  CPO · 小盘chokepoint · 散户优先`。
@@ -18,7 +18,7 @@ Notification Tools 为本地 agent workflow 提供通知边界。生产者 skill
 - 不抓取 Twitter/X 内容。
 - 不写入 Obsidian 笔记。
 - 不负责生产者调度。
-- 不在插件里保存真实飞书 webhook URL 或 secret。
+- 不在插件里保存真实飞书 webhook URL、飞书 secret 或企业微信 webhook URL。
 
 ## 目录结构
 
@@ -68,7 +68,7 @@ export NOTIFICATION_CENTER_FEISHU_CONFIG=/path/to/feishu.json
 ~/.codex/skills/notification-center/feishu.json
 ```
 
-## 飞书配置
+## 机器人配置
 
 将 `skills/notification-center/feishu.example.json` 复制到本机配置路径，替换占位符，并收紧权限：
 
@@ -78,7 +78,7 @@ cp skills/notification-center/feishu.example.json ~/.notification-center/feishu.
 chmod 600 ~/.notification-center/feishu.json
 ```
 
-不要提交真实 webhook URL 或飞书 secret。
+不要提交真实 webhook URL 或飞书 secret。企业微信机器人可放在同一个本地配置文件的 `wecom.bots` 下，例如按 `Codex` topic 路由到企业微信群。
 
 ## 常用命令
 
@@ -95,7 +95,7 @@ python3 skills/notification-center/append.py \
   --meta '{"topic":"invest","author_tags":["CPO","小盘chokepoint","散户优先"]}'
 ```
 
-预览待发送飞书消息：
+预览待发送消息：
 
 ```bash
 python3 skills/notification-center/dispatch.py --dry-run
@@ -126,9 +126,9 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.saber.notification-c
 
 ## 安全
 
-- 真实飞书配置保存在 git 之外。
+- 真实机器人配置保存在 git 之外。
 - 配置文件权限保持为 `0600`。
-- 不要把飞书 webhook URL 或签名 secret 粘贴到对话里。
+- 不要把飞书 webhook URL、飞书签名 secret 或企业微信 webhook URL 粘贴到对话里。
 - 运行时队列、日志、sidecar 和 watermark 都是本地可变状态，不应提交。
 
 ## 安装

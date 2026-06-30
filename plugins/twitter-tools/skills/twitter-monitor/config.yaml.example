@@ -52,6 +52,8 @@ settings:
 sinks:
   notification:
     enabled: true
+    targets:
+      - "feishu"
     direct_chars: 300
     summary_chars: 600
     summary_timeout_seconds: 20

@@ -9,12 +9,21 @@
     "ai": {
       "webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/...",
       "secret": "SEC...",
-      "topics": ["AI", "ClaudeCode"]
+      "topics": ["AI", "ClaudeCode", "Codex"]
     }
   },
   "topics": {
     "invest": ["invest"],
     "AI": ["ai"],
-    "ClaudeCode": ["ai"]
+    "ClaudeCode": ["ai"],
+    "Codex": ["ai"]
+  },
+  "wecom": {
+    "bots": {
+      "codex": {
+        "webhook": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...",
+        "topics": ["Codex"]
+      }
+    }
   }
 }

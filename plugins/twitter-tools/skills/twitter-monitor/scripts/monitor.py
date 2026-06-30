@@ -156,6 +156,7 @@ def parse_config_subset(text: str) -> dict[str, Any]:
     current_user: dict[str, Any] | None = None
     current_topic: dict[str, Any] | None = None
     current_sink: dict[str, Any] | None = None
+    current_sink_list_key = ""
     in_topic_users = False
     for raw_line in text.splitlines():
         line = raw_line.split("#", 1)[0].rstrip()
@@ -166,6 +167,7 @@ def parse_config_subset(text: str) -> dict[str, Any]:
             current_user = None
             current_topic = None
             current_sink = None
+            current_sink_list_key = ""
             in_topic_users = False
             continue
         stripped = line.strip()
@@ -197,10 +199,20 @@ def parse_config_subset(text: str) -> dict[str, Any]:
             if line.startswith("  ") and not line.startswith("    ") and stripped.endswith(":"):
                 sink_name = stripped[:-1].strip()
                 current_sink = config["sinks"].setdefault(sink_name, {})
+                current_sink_list_key = ""
+                continue
+            if current_sink is not None and current_sink_list_key and stripped.startswith("- "):
+                current_sink[current_sink_list_key].append(parse_scalar(stripped[2:]))
                 continue
             if current_sink is not None and ":" in stripped:
                 key, value = stripped.split(":", 1)
-                current_sink[key.strip()] = parse_scalar(value)
+                key = key.strip()
+                if value.strip():
+                    current_sink[key] = parse_scalar(value)
+                    current_sink_list_key = ""
+                else:
+                    current_sink[key] = []
+                    current_sink_list_key = key
     return config
 
 
@@ -543,6 +555,27 @@ def notification_settings(config: dict[str, Any] | None) -> dict[str, Any]:
     return notification if isinstance(notification, dict) else {}
 
 
+def notification_targets(config: dict[str, Any] | None) -> list[str]:
+    settings = notification_settings(config)
+    raw_targets = settings.get("targets")
+    if isinstance(raw_targets, str):
+        values = re.split(r"[,，\\s]+", raw_targets)
+    elif isinstance(raw_targets, list):
+        values = raw_targets
+    else:
+        values = ["feishu"]
+    targets: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        target = str(value or "").strip()
+        key = target.lower()
+        if not target or key in seen:
+            continue
+        seen.add(key)
+        targets.append(target)
+    return targets or ["feishu"]
+
+
 def setting_int(settings: dict[str, Any], key: str, default: int, *, minimum: int = 1) -> int:
     try:
         raw = settings.get(key)
@@ -829,7 +862,7 @@ def build_notification_event(
         "dedupe_key": f"tweet:{tweet_id}",
         "links": [{"label": url, "url": url}] if url else [],
         "meta": meta,
-        "targets": ["feishu"],
+        "targets": notification_targets(config),
     }
 
 
