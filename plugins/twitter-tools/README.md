@@ -54,6 +54,7 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 | 内容补全 | 对候选内容调用 `twitter-fetch single --include-thread` |
 | 通知中心 | 对候选内容构造最小 review event，并通过 `notification-center/append.py --stdin` 写入本地通知队列 |
 | 飞书展示 | 通知卡片只展示作者、正文摘要、推文链接；长内容可调用 LLM 摘要，失败时本地截断兜底 |
+| 重点提醒 | `Codex` / `ClaudeCode` topic 中命中使用额度即将重置的内容，会就地升级为 `critical` 喜讯提醒，不额外生成第二条通知 |
 | KOL 画像 tag | 若用户在 KOL Twin vault 中有 `wiki/profile.json`，会读取前三个展示 tag 写入 `meta.author_tags` |
 | Obsidian 归档 | 当前不自动写入；runner 只标记 `fetched`，不会标记 `saved` |
 
