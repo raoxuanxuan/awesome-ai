@@ -130,7 +130,8 @@ The same routing can also be expressed with an explicit `topics` map:
 Routing rules:
 
 - Producers keep `targets: ["feishu"]` and set `meta.topic` when known.
-- Dispatcher routes `meta.topic` through `bots.*.topics`.
+- Producers may also set `meta.topics` as a list when one event belongs to several topics; `meta.topic` remains the backward-compatible primary topic.
+- Dispatcher routes `meta.topic` or every item in `meta.topics` through `bots.*.topics`, deduping bots reached by more than one topic.
 - If a topic is not configured, dispatcher uses `default`.
 - If a topic maps to multiple bots, dispatcher sends the same event to every configured bot.
 - Delivered sidecars are target-scoped for routed bots, so one event can be delivered independently to different Feishu bots.

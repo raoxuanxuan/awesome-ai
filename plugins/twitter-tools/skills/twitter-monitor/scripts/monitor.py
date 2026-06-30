@@ -373,10 +373,33 @@ def topic_by_user(config: dict[str, Any]) -> dict[str, str]:
     return mapping
 
 
+def topics_by_user(config: dict[str, Any]) -> dict[str, list[str]]:
+    mapping: dict[str, list[str]] = {}
+    for topic in config.get("topics") or []:
+        if not isinstance(topic, dict):
+            continue
+        topic_name = str(topic.get("name") or "").strip()
+        if not topic_name:
+            continue
+        for username in topic.get("users") or []:
+            key = str(username).lstrip("@").lower()
+            topics = mapping.setdefault(key, [])
+            if topic_name not in topics:
+                topics.append(topic_name)
+    return mapping
+
+
+def topics_for_user(username: str, config: dict[str, Any] | None) -> list[str]:
+    if not isinstance(config, dict):
+        return []
+    return topics_by_user(config).get(username.lstrip("@").lower(), [])
+
+
 def topic_for_user(username: str, config: dict[str, Any] | None) -> str:
     if not isinstance(config, dict):
         return ""
-    return topic_by_user(config).get(username.lstrip("@").lower(), "")
+    topics = topics_for_user(username, config)
+    return topics[0] if topics else ""
 
 
 def load_state(path: Path) -> dict[str, Any]:
@@ -779,7 +802,8 @@ def build_notification_event(
     ).strip()
     content_types = tweet_content_types(item, full_payload)
     summary, summary_meta = build_notification_summary(username, item, full_payload, config)
-    topic = topic_for_user(username, config)
+    topics = topics_for_user(username, config)
+    topic = topics[0] if topics else ""
     labels = user_labels(username, config)
     author_tags = author_tags_from_profile(username, config)
     meta = {
@@ -795,6 +819,8 @@ def build_notification_event(
         meta["author_tags"] = author_tags
     if topic:
         meta["topic"] = topic
+    if len(topics) > 1:
+        meta["topics"] = topics
     return {
         "source": "twitter-monitor",
         "level": "alert",

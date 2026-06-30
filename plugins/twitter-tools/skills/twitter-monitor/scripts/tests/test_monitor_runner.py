@@ -97,6 +97,16 @@ class MonitorRunnerTests(unittest.TestCase):
         self.assertEqual(monitor.topic_for_user("@Money_or_Life_X", config), "invest")
         self.assertEqual(monitor.topic_for_user("unknown", config), "")
 
+    def test_topics_for_user_returns_all_topic_memberships(self):
+        config = {
+            "topics": [
+                {"name": "AI", "users": ["thsottiaux"]},
+                {"name": "Codex", "users": ["@thsottiaux"]},
+            ]
+        }
+
+        self.assertEqual(monitor.topics_for_user("thsottiaux", config), ["AI", "Codex"])
+
     def test_skip_reason_filters_invest_topic_irrelevant_quote(self):
         item = tweet(
             "901",
@@ -534,6 +544,20 @@ settings:
 
         self.assertEqual(event["meta"]["topic"], "AI")
         self.assertEqual(event["targets"], ["feishu"])
+
+    def test_notification_event_includes_all_topics_when_user_has_multiple(self):
+        item = tweet("309", screen_name="thsottiaux")
+        config = {
+            "topics": [
+                {"name": "AI", "users": ["thsottiaux"]},
+                {"name": "Codex", "users": ["thsottiaux"]},
+            ]
+        }
+
+        event = monitor.build_notification_event("thsottiaux", item, timeline_payload(item), config)
+
+        self.assertEqual(event["meta"]["topic"], "AI")
+        self.assertEqual(event["meta"]["topics"], ["AI", "Codex"])
 
     def test_notification_event_includes_author_tags_from_kol_profile(self):
         with tempfile.TemporaryDirectory() as tmp:

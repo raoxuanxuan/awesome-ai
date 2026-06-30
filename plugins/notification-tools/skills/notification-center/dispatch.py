@@ -244,6 +244,21 @@ def entry_topic(entry: dict[str, Any]) -> str:
     return str(meta.get("topic") or "").strip()
 
 
+def entry_topics(entry: dict[str, Any]) -> list[str]:
+    meta = entry.get("meta") if isinstance(entry.get("meta"), dict) else {}
+    topics: list[str] = []
+    primary = str(meta.get("topic") or "").strip()
+    if primary:
+        topics.append(primary)
+    raw_topics = meta.get("topics")
+    if isinstance(raw_topics, list):
+        for raw_topic in raw_topics:
+            topic = str(raw_topic or "").strip()
+            if topic and topic not in topics:
+                topics.append(topic)
+    return topics
+
+
 def feishu_routes(entry: dict[str, Any], cfg: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     cfg = ensure_config(cfg)
     targets = [str(target) for target in (entry.get("targets") or ["feishu"])]
@@ -252,14 +267,19 @@ def feishu_routes(entry: dict[str, Any], cfg: dict[str, Any]) -> list[tuple[str,
     for target in targets:
         if target != "feishu" and not target.startswith("feishu:"):
             continue
-        topic = target.split(":", 1)[1] if ":" in target else entry_topic(entry)
-        bot_names = cfg["topics"].get(topic, []) if topic else []
-        if not bot_names and topic in cfg["bots"]:
-            bot_names = [topic]
+        topics = [target.split(":", 1)[1]] if ":" in target else entry_topics(entry)
+        bot_names = []
+        for topic in topics:
+            matched_bot_names = cfg["topics"].get(topic, []) if topic else []
+            if not matched_bot_names and topic in cfg["bots"]:
+                matched_bot_names = [topic]
+            for bot_name in matched_bot_names:
+                if bot_name not in bot_names:
+                    bot_names.append(bot_name)
         if not bot_names:
             bot_names = [cfg["default"]]
         for bot_name in bot_names:
-            route_key = "feishu" if bot_name == cfg["default"] and not topic else f"feishu:{bot_name}"
+            route_key = "feishu" if bot_name == cfg["default"] and not topics else f"feishu:{bot_name}"
             if route_key in seen:
                 continue
             seen.add(route_key)

@@ -199,6 +199,7 @@ always the standard envelope:
      - content type: `thread`, `quote`, `article`, or plain `tweet`
    - Twitter Monitor sets `meta.display.hide_footer: true`, so Feishu cards omit the trailing time/level footer and leave more space for content.
    - The notification event includes `meta.topic` when the monitored user belongs to a configured topic.
+   - If a monitored user belongs to multiple configured topics, `meta.topic` keeps the first topic for backward compatibility and `meta.topics` contains all topics in config order.
    - If the monitored user has a KOL Twin profile, the notification event includes `meta.author_tags`.
      - Default KOL vault: `/Users/saberrao/vault/kol`.
      - Overrides: `settings.kol_vault`, `TWITTER_MONITOR_KOL_VAULT`, or `KOL_TWIN_VAULT`.
