@@ -210,6 +210,25 @@ class NotificationCenterTests(unittest.TestCase):
 
         self.assertEqual([target for target, _bot in routes], ["feishu:ai", "feishu:archive"])
 
+    def test_dispatch_routes_meta_topics_to_all_matching_bots_without_duplicates(self):
+        cfg = dispatch.normalize_config(
+            {
+                "default": "general",
+                "bots": {
+                    "general": {"webhook": "w-general", "secret": "s-general"},
+                    "ai": {"webhook": "w-ai", "secret": "s-ai", "topics": ["AI", "Codex"]},
+                    "archive": {"webhook": "w-archive", "secret": "s-archive", "topics": ["Codex"]},
+                },
+            }
+        )
+
+        routes = dispatch.feishu_routes(
+            {"targets": ["feishu"], "meta": {"topic": "AI", "topics": ["AI", "Codex"]}},
+            cfg,
+        )
+
+        self.assertEqual([target for target, _bot in routes], ["feishu:ai", "feishu:archive"])
+
     def test_dispatch_falls_back_to_default_bot_for_unmatched_topic(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp) / ".notification-center"
