@@ -37,6 +37,7 @@ GRAPHQL_FALLBACK_HASHES = {
 }
 TWITTER_SNOWFLAKE_EPOCH = 1288834974657
 REPLIES_PROVIDER_ORDER = ("graphql", "browseros", "camofox_nitter", "direct_nitter")
+SEARCH_MODE_PRODUCTS = {"live": "Latest", "top": "Top"}
 
 
 def _int(value: Any) -> int:
@@ -480,6 +481,51 @@ def extract_graphql_search_replies_page(
         items.append(item)
     items.sort(key=lambda item: int(item["id"]))
     return items
+
+
+def extract_graphql_search_page(
+    payload: dict[str, Any], *, limit: int
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for result in _iter_graphql_tweet_results(payload):
+        item = normalize_graphql_tweet(result)
+        if not item:
+            continue
+        if item["id"] in seen:
+            continue
+        seen.add(item["id"])
+        items.append(item)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _clean_search_query(query: str) -> str:
+    return re.sub(r"[\x00-\x1f\x7f]", " ", query).strip()
+
+
+def _build_search_query(
+    query: str,
+    *,
+    lang: str | None = None,
+    since_time: str | None = None,
+    until_time: str | None = None,
+    exclude_replies: bool = False,
+    exclude_retweets: bool = False,
+) -> str:
+    parts = [_clean_search_query(query)]
+    if lang:
+        parts.append(f"lang:{lang.strip()}")
+    if since_time:
+        parts.append(f"since_time:{since_time.strip()}")
+    if until_time:
+        parts.append(f"until_time:{until_time.strip()}")
+    if exclude_replies:
+        parts.append("-filter:replies")
+    if exclude_retweets:
+        parts.append("-filter:retweets")
+    return " ".join(part for part in parts if part)
 
 
 def fetch_timeline_syndication(
@@ -1222,6 +1268,120 @@ def fetch_replies_graphql(
     except Exception as exc:
         return models.standard_response(
             mode="replies",
+            source="graphql",
+            input_value=input_value,
+            error=models.standard_error(
+                "provider_error", str(exc), provider="graphql", retryable=True
+            ),
+        )
+
+
+def fetch_search_graphql(
+    query: str,
+    *,
+    cookie_file: str,
+    limit: int = 20,
+    mode: str = "live",
+    lang: str | None = None,
+    since_time: str | None = None,
+    until_time: str | None = None,
+    exclude_replies: bool = False,
+    exclude_retweets: bool = False,
+    search_payload_fetcher: Any | None = None,
+) -> dict[str, Any]:
+    product = SEARCH_MODE_PRODUCTS.get(mode, "Latest")
+    raw_query = _build_search_query(
+        query,
+        lang=lang,
+        since_time=since_time,
+        until_time=until_time,
+        exclude_replies=exclude_replies,
+        exclude_retweets=exclude_retweets,
+    )
+    input_value = {
+        "query": query,
+        "raw_query": raw_query,
+        "limit": limit,
+        "mode": mode,
+        "product": product,
+        "lang": lang,
+        "since_time": since_time,
+        "until_time": until_time,
+        "exclude_replies": exclude_replies,
+        "exclude_retweets": exclude_retweets,
+        "cookie_file": cookie_file,
+    }
+    if not raw_query:
+        return models.standard_response(
+            mode="search",
+            source="graphql",
+            input_value=input_value,
+            error=models.standard_error(
+                "empty_query",
+                "Search query must not be empty",
+                provider="graphql",
+                retryable=False,
+            ),
+        )
+    try:
+        if search_payload_fetcher is None:
+            import httpx
+
+            cookies = _load_graphql_cookies(cookie_file)
+            cookie_header = f"auth_token={cookies['auth_token']}; ct0={cookies['ct0']}"
+            client = httpx.Client(
+                headers={"User-Agent": GRAPHQL_UA, "Cookie": cookie_header},
+                follow_redirects=True,
+                timeout=30,
+            )
+            try:
+                hashes = _scrape_graphql_hashes(client)
+                try:
+                    transaction = _build_graphql_transaction(client)
+                except Exception:
+                    transaction = None
+                payload = _graphql_get(
+                    client,
+                    transaction,
+                    hashes,
+                    cookies,
+                    "SearchTimeline",
+                    {
+                        "rawQuery": raw_query,
+                        "count": limit,
+                        "querySource": "typed_query",
+                        "product": product,
+                    },
+                    GRAPHQL_UTAR_FEATURES,
+                )
+            finally:
+                client.close()
+        else:
+            payload = search_payload_fetcher(raw_query, product, limit)
+        items = extract_graphql_search_page(payload, limit=limit)
+        return models.standard_response(
+            mode="search",
+            source="graphql",
+            input_value=input_value,
+            items=items,
+            meta={"result_count": len(items), "query": raw_query},
+        )
+    except FileNotFoundError as exc:
+        return _cookie_error_response("search", "graphql", input_value, exc)
+    except RuntimeError as exc:
+        if "missing auth_token/ct0" in str(exc):
+            return _cookie_error_response("search", "graphql", input_value, exc)
+        return models.standard_response(
+            mode="search",
+            source="graphql",
+            input_value=input_value,
+            error=models.standard_error(
+                "provider_error", str(exc), provider="graphql", retryable=True
+            ),
+        )
+    except Exception as exc:
+        return models.standard_response(
+            mode="search",
             source="graphql",
             input_value=input_value,
             error=models.standard_error(

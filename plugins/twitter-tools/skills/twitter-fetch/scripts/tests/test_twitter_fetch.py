@@ -411,6 +411,143 @@ class TwitterFetchTests(unittest.TestCase):
         self.assertEqual(items[0]["conversation_id"], "100")
         self.assertEqual(items[0]["in_reply_to"], "100")
 
+    def test_graphql_search_payload_extracts_normalized_items(self):
+        payload = {
+            "data": {
+                "search_by_raw_query": {
+                    "search_timeline": {
+                        "timeline": {
+                            "instructions": [
+                                {
+                                    "entries": [
+                                        {
+                                            "entryId": "tweet-900",
+                                            "content": {
+                                                "itemContent": {
+                                                    "tweet_results": {
+                                                        "result": {
+                                                            "rest_id": "900",
+                                                            "legacy": {
+                                                                "id_str": "900",
+                                                                "full_text": "NVDA priced in?",
+                                                                "conversation_id_str": "900",
+                                                                "created_at": "Mon Jan 01 12:00:00 +0000 2026",
+                                                                "favorite_count": 5,
+                                                                "retweet_count": 1,
+                                                            },
+                                                            "core": {
+                                                                "user_results": {
+                                                                    "result": {
+                                                                        "core": {
+                                                                            "name": "Market",
+                                                                            "screen_name": "market",
+                                                                        }
+                                                                    }
+                                                                }
+                                                            },
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                        },
+                                        {
+                                            "entryId": "tweet-900-duplicate",
+                                            "content": {
+                                                "itemContent": {
+                                                    "tweet_results": {
+                                                        "result": {
+                                                            "rest_id": "900",
+                                                            "legacy": {
+                                                                "id_str": "900",
+                                                                "full_text": "duplicate",
+                                                            },
+                                                            "core": {
+                                                                "user_results": {
+                                                                    "result": {
+                                                                        "core": {
+                                                                            "name": "Market",
+                                                                            "screen_name": "market",
+                                                                        }
+                                                                    }
+                                                                }
+                                                            },
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                        },
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+
+        items = providers.extract_graphql_search_page(payload, limit=10)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["id"], "900")
+        self.assertEqual(items[0]["url"], "https://x.com/market/status/900")
+        self.assertEqual(items[0]["full_text"], "NVDA priced in?")
+        self.assertEqual(items[0]["stats"]["likes"], 5)
+
+    def test_cli_search_accepts_query_limit_and_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cookie_file = Path(tmp) / "cookies.json"
+            cookie_file.write_text('{"auth_token":"a","ct0":"b"}')
+            with mock.patch("twitter_fetch.cli.providers.fetch_search_graphql") as fetch:
+                fetch.return_value = models.standard_response(
+                    mode="search",
+                    source="graphql",
+                    input_value={"query": "NVDA priced in"},
+                    items=[],
+                )
+                out = StringIO()
+                with redirect_stdout(out):
+                    rc = cli.main(
+                        [
+                            "search",
+                            "--query",
+                            "NVDA priced in",
+                            "--limit",
+                            "50",
+                            "--mode",
+                            "live",
+                            "--cookie-file",
+                            str(cookie_file),
+                        ]
+                    )
+
+        self.assertEqual(rc, 0)
+        fetch.assert_called_once()
+        self.assertEqual(fetch.call_args.args[0], "NVDA priced in")
+        self.assertEqual(fetch.call_args.kwargs["limit"], 50)
+        self.assertEqual(fetch.call_args.kwargs["mode"], "live")
+        self.assertEqual(fetch.call_args.kwargs["cookie_file"], str(cookie_file))
+
+    def test_search_without_cookies_returns_setup_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = StringIO()
+            with redirect_stdout(out):
+                rc = cli.main(
+                    [
+                        "search",
+                        "--query",
+                        "NVDA",
+                        "--cookie-file",
+                        str(Path(tmp) / "missing.json"),
+                    ]
+                )
+            payload = json.loads(out.getvalue())
+            self.assertEqual(rc, 1)
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["mode"], "search")
+            self.assertEqual(payload["source"], "runtime")
+            self.assertEqual(payload["error"]["code"], "missing_cookies")
+            self.assertIn("TWITTER_FETCH_COOKIES", payload["error"]["message"])
+
     def test_auto_replies_uses_graphql_first(self):
         payload = providers.fetch_replies(
             "https://x.com/sama/status/100",

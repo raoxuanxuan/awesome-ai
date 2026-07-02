@@ -19,6 +19,7 @@ Twitter Tools 是一个同时面向 Codex 和 Claude Code 的 agent plugin。目
 | 单条 + thread | 读取一条推文，并尝试展开同作者 thread 上下文 |
 | thread | 以 thread 结果包的形式返回一组同主题推文 |
 | timeline | 读取某个用户最近公开 timeline |
+| search | 使用登录态 GraphQL 按关键词、ticker、产品名、事件词或 claim 主动搜索扩散结果 |
 | history | 用登录态读取某个用户更深的 tweets/replies 历史 |
 
 `twitter-media-fetch` 当前支持：

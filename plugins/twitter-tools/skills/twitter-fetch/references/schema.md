@@ -7,7 +7,7 @@ Every command writes one JSON object to stdout.
 ```json
 {
   "ok": true,
-  "mode": "single | timeline | thread | replies | history",
+  "mode": "single | timeline | thread | replies | search | history",
   "source": "fxtwitter | syndication | nitter | direct_nitter | browseros | graphql | auto | mock",
   "fetched_at": "UTC ISO timestamp",
   "input": {},
@@ -80,6 +80,22 @@ When `single` is called with `--include-thread`, `--context thread`, or `--conte
 ```
 
 Default `single` output does not include `thread`.
+
+## Search Meta
+
+`search` returns normalized tweet items using the standard tweet item schema.
+It may include:
+
+```json
+{
+  "result_count": 20,
+  "query": "NVDA priced in lang:en -filter:replies"
+}
+```
+
+The `input` object includes the original `query`, expanded `raw_query`, `limit`,
+`mode`, optional filters, and the cookie file path. It must not include cookie
+values.
 
 ## History Meta
 

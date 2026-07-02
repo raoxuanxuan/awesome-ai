@@ -175,6 +175,56 @@ def _replies(args: argparse.Namespace) -> int:
     return 0 if payload["ok"] else 1
 
 
+def _search_input(args: argparse.Namespace) -> dict:
+    return {
+        "query": args.query,
+        "limit": args.limit,
+        "mode": args.mode,
+        "lang": args.lang,
+        "since_time": args.since_time,
+        "until_time": args.until_time,
+        "exclude_replies": args.exclude_replies,
+        "exclude_retweets": args.exclude_retweets,
+        "cookie_file": args.cookie_file,
+    }
+
+
+def _search(args: argparse.Namespace) -> int:
+    if args.mock:
+        payload = models.standard_response(
+            mode="search",
+            source="mock",
+            input_value=_search_input(args),
+            items=models.mock_timeline("search")[: args.limit],
+            meta={"result_count": min(args.limit, 1), "query": args.query},
+        )
+        _print(payload, args.pretty)
+        return 0
+    cookie_error = _cookie_error(args.cookie_file)
+    if cookie_error is not None:
+        payload = models.standard_response(
+            mode="search",
+            source="runtime",
+            input_value=_search_input(args),
+            error=cookie_error,
+        )
+        _print(payload, args.pretty)
+        return 1
+    payload = providers.fetch_search_graphql(
+        args.query,
+        cookie_file=args.cookie_file,
+        limit=args.limit,
+        mode=args.mode,
+        lang=args.lang,
+        since_time=args.since_time,
+        until_time=args.until_time,
+        exclude_replies=args.exclude_replies,
+        exclude_retweets=args.exclude_retweets,
+    )
+    _print(payload, args.pretty)
+    return 0 if payload["ok"] else 1
+
+
 def _history(args: argparse.Namespace) -> int:
     if args.mock:
         payload = models.standard_response(
@@ -293,6 +343,25 @@ def build_parser() -> argparse.ArgumentParser:
     replies.add_argument("--pretty", action="store_true")
     replies.add_argument("--mock", action="store_true", help=argparse.SUPPRESS)
     replies.set_defaults(func=_replies)
+
+    search = sub.add_parser("search", help="Search X/Twitter by keyword query")
+    search.add_argument("--query", required=True)
+    search.add_argument("--limit", type=int, default=20)
+    search.add_argument(
+        "--mode",
+        choices=["live", "top"],
+        default="live",
+        help="Search ranking mode: live maps to X Latest, top maps to X Top",
+    )
+    search.add_argument("--lang", default=None)
+    search.add_argument("--since-time", default=None)
+    search.add_argument("--until-time", default=None)
+    search.add_argument("--exclude-replies", action="store_true")
+    search.add_argument("--exclude-retweets", action="store_true")
+    search.add_argument("--cookie-file", default=str(default_cookie_path()))
+    search.add_argument("--pretty", action="store_true")
+    search.add_argument("--mock", action="store_true", help=argparse.SUPPRESS)
+    search.set_defaults(func=_search)
 
     history = sub.add_parser("history", help="Fetch tweets/replies history")
     history.add_argument("--user", required=True)

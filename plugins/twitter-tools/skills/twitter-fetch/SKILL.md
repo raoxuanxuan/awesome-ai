@@ -5,7 +5,7 @@ description: Use when Codex needs to fetch, inspect, normalize, or troubleshoot 
 
 # Twitter Fetch
 
-`twitter-fetch` is a read-only Twitter/X data adapter. It fetches and normalizes single tweets, X Articles, timelines, threads, replies, and user history into JSON/JSONL for upper-layer skills.
+`twitter-fetch` is a read-only Twitter/X data adapter. It fetches and normalizes single tweets, X Articles, timelines, threads, replies, keyword search results, and user history into JSON/JSONL for upper-layer skills.
 
 It only retrieves and normalizes data. It must not write Obsidian files, GitHub Pages files, KOL vault files, monitor state, summaries, translations, downloaded media, or Feishu inbox entries.
 
@@ -47,6 +47,7 @@ Use the skill runner for normal operation:
 
 ```bash
 bin/twitter-fetch single --url "https://x.com/user/status/123" --pretty
+bin/twitter-fetch search --query "NVDA priced in" --limit 50 --mode live --pretty
 bin/twitter-fetch history --user TJ_Research --max-pages 1 --pretty
 ```
 
@@ -135,6 +136,8 @@ python3 scripts/twitter_fetch.py single --url "https://x.com/user/status/123" --
 python3 scripts/twitter_fetch.py timeline --user karpathy --limit 20 --pretty
 python3 scripts/twitter_fetch.py thread --url "https://x.com/user/status/123" --pretty
 python3 scripts/twitter_fetch.py replies --url "https://x.com/user/status/123" --pretty
+python3 scripts/twitter_fetch.py search --query "NVDA priced in" --limit 50 --mode live --pretty
+python3 scripts/twitter_fetch.py search --query "OpenAI o3" --lang en --exclude-replies --pretty
 python3 scripts/twitter_fetch.py history --user TJ_Research --months 6 --pretty
 python3 scripts/twitter_fetch.py history --user TJ_Research --since-id 123456789 --jsonl
 ```
@@ -147,6 +150,7 @@ Current provider status:
 | `timeline` | Twitter Syndication | active |
 | `thread` | Twitter Syndication + normalized items | active for recent timeline window |
 | `replies` | GraphQL -> BrowserOS -> Camofox/Nitter -> direct Nitter | active provider chain; GraphQL uses explicit cookies, BrowserOS uses local MCP, Nitter paths do not use cookies |
+| `search` | GraphQL SearchTimeline | active; requires explicit cookies; BrowserOS/Nitter are fallback research paths, not the stable default |
 | `history` | GraphQL UserTweetsAndReplies | active pure JSON/JSONL fetch; no vault/state writes |
 
 ## Output Contract

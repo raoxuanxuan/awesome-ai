@@ -10,6 +10,7 @@ Use this reference when a user asks how to use `twitter-fetch`, which command to
 | Fetch one tweet and attach discovered same-thread context | `bin/twitter-fetch single --url "<url>" --include-thread --pretty` |
 | Fetch only a thread envelope | `bin/twitter-fetch thread --url "<url>" --pretty` |
 | Fetch visible replies best-effort | `bin/twitter-fetch replies --url "<url>" --provider auto --pretty` |
+| Search X/Twitter by keyword or claim | `bin/twitter-fetch search --query "NVDA priced in" --limit 50 --mode live --pretty` |
 | Fetch a user's recent public timeline | `bin/twitter-fetch timeline --user <handle> --limit 10 --pretty` |
 | Fetch deeper user tweets/replies history | `bin/twitter-fetch history --user <handle> --max-pages 1 --jsonl` |
 | Initialize runtime/check dependencies | `scripts/bootstrap.sh --check --init-runtime` |
@@ -69,6 +70,34 @@ bin/twitter-fetch replies --url "https://x.com/user/status/123" --provider brows
 bin/twitter-fetch replies --url "https://x.com/user/status/123" --provider camofox_nitter --pretty
 bin/twitter-fetch replies --url "https://x.com/user/status/123" --provider direct_nitter --pretty
 ```
+
+### Search
+
+Use this when a caller needs active expansion from a keyword, ticker, product
+name, event phrase, or claim discovered elsewhere:
+
+```bash
+bin/twitter-fetch search --query "NVDA priced in" --limit 50 --mode live --pretty
+```
+
+`search` uses authenticated X GraphQL `SearchTimeline` and defaults to
+`--mode live`, which maps to X Latest results. `--mode top` maps to X Top
+ranking. It requires the explicit `--cookie-file` path, defaulting to
+`~/.twitter-fetch/.cookies.json`; it never reads browser cookies by itself and
+must not print `auth_token`, `ct0`, or full Cookie headers.
+
+MVP filters append X search operators to the raw query:
+
+```bash
+bin/twitter-fetch search --query "OpenAI o3" --lang en --exclude-replies --pretty
+bin/twitter-fetch search --query "TSLA robotaxi" --since-time 1782864000 --until-time 1782950400 --pretty
+```
+
+Search results use the same normalized tweet item schema as `timeline`,
+`history`, and `replies`, so callers can pipe the envelope into `tweet-pool
+ingest`. BrowserOS or Chrome live search can be used for manual debugging, but
+the web UI snapshot/DOM path is a fallback research option rather than the
+stable provider contract.
 
 ### Timeline
 
